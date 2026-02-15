@@ -20,7 +20,23 @@ function loadChatMessages(): UIMessage[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(CHAT_STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as UIMessage[];
+    if (!raw) return [];
+    const messages = JSON.parse(raw) as UIMessage[];
+    // Strip trailing assistant messages with incomplete tool calls —
+    // if the user closed the tab mid-generation, useChat would see these
+    // as pending tool calls and never reach status="ready", blocking
+    // all future sendMessage() calls (including pendingMessage from landing).
+    while (messages.length > 0) {
+      const last = messages[messages.length - 1];
+      if (last.role !== "assistant") break;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const hasIncomplete = (last.parts as any[])?.some(
+        (p) => (p.type === "tool-invocation" || p.type?.startsWith("tool-")) && p.state !== "output-available"
+      );
+      if (!hasIncomplete) break;
+      messages.pop();
+    }
+    return messages;
   } catch { /* ignore */ }
   return [];
 }

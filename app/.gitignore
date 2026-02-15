@@ -29,3 +29,7 @@ next-env.d.ts
 
 # logs
 .logs/
+
+# generated assets
+/public/generated-backgrounds/
+/public/generated-videos/

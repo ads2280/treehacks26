@@ -293,6 +293,8 @@ export default function HomePage() {
               width={48}
               height={48}
               className="h-12 w-auto"
+              style={{ width: 'auto', height: 'auto' }}
+              priority
             />
           </div>
         </div>
@@ -324,6 +326,7 @@ export default function HomePage() {
                     src={card.image || "/placeholder.svg"}
                     alt={`Artwork ${index + 1}`}
                     fill
+                    sizes="256px"
                     className="object-cover"
                   />
                 </div>
@@ -347,6 +350,7 @@ export default function HomePage() {
                       width={128}
                       height={128}
                       className="h-24 md:h-32 w-auto mx-auto"
+                      style={{ width: 'auto', height: 'auto' }}
                     />
                   </div>
                 </div>
