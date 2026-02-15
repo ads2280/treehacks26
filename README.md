@@ -11,14 +11,10 @@
 </p>
 
 <h1 align="center">ProduceThing</h1>
-<p align="center"><strong>Layer-by-layer AI music composition. Describe a vibe, build a track, own the process.</strong></p>
+<p align="center"><strong>Most AI music tools generate songs. ProduceThing helps you write better ones. It coaches lyrics in real time, then an autonomous agent arranges and refines them into a finished track.</strong></p>
 <p align="center"><em>TreeHacks 2026</em></p>
 
 <p align="center"><img src="docs/demo.gif" width="720" /></p>
-
----
-
-Most AI music tools generate songs. ProduceThing helps you write better ones. It coaches lyrics in real time, then an autonomous agent arranges and refines them into a finished track.
 
 ---
 
