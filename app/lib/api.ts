@@ -207,3 +207,97 @@ export function stemDemucs(
     body: JSON.stringify({ audio_url: audioUrl, clip_id: clipId }),
   });
 }
+
+// --- HeyGen & Video ---
+
+export async function uploadToHeyGen(
+  file: Blob,
+  contentType: string,
+  type?: "talking_photo"
+): Promise<{ id?: string; image_key?: string; url?: string; talking_photo_id?: string; talking_photo_url?: string }> {
+  const url = type
+    ? `/api/heygen/upload?type=${type}`
+    : "/api/heygen/upload";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": contentType },
+    body: file,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(body.error || `Upload failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export function generateHeyGenVideo(params: {
+  video_inputs: unknown[];
+}): Promise<{ video_id: string }> {
+  return fetchJSON("/api/heygen/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+}
+
+export function pollHeyGenVideoStatus(
+  videoId: string
+): Promise<{ status: string; video_url?: string; thumbnail_url?: string; duration?: number; error?: { code?: string; message?: string; detail?: string } }> {
+  return fetchJSON(`/api/heygen/status?video_id=${encodeURIComponent(videoId)}`);
+}
+
+export async function pollHeyGenUntilDone(
+  videoId: string,
+  { intervalMs = 10000, timeoutMs = 600000 } = {}
+): Promise<{ status: string; video_url: string; thumbnail_url?: string; duration?: number }> {
+  const startTime = Date.now();
+  while (true) {
+    if (Date.now() - startTime > timeoutMs) {
+      throw new Error("Video generation timed out after 10 minutes");
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+    const result = await pollHeyGenVideoStatus(videoId);
+    if (result.status === "completed" && result.video_url) {
+      return result as { status: string; video_url: string; thumbnail_url?: string; duration?: number };
+    }
+    if (result.status === "failed") {
+      const errDetail = result.error
+        ? ` — ${result.error.message || result.error.detail || JSON.stringify(result.error)}`
+        : "";
+      throw new Error(`Video generation failed${errDetail}`);
+    }
+  }
+}
+
+export function getStreamingToken(): Promise<{ token: string }> {
+  return fetchJSON("/api/heygen/streaming-token", { method: "POST" });
+}
+
+export function generateBackgrounds(params: {
+  sections: { tag: string; lines: string[] }[];
+  vibePrompt: string;
+  theme: string | null;
+  tags: string;
+}): Promise<{ sections: { tag: string; lines: string[]; backgroundUrl: string }[] }> {
+  return fetchJSON("/api/generate-backgrounds", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+}
+
+export async function uploadVideoToBlob(
+  videoBlob: Blob,
+  filename: string
+): Promise<{ url: string }> {
+  const res = await fetch("/api/video/upload", {
+    method: "POST",
+    headers: { "Content-Type": "video/mp4" },
+    body: videoBlob,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(body.error || `Video upload failed: ${res.status}`);
+  }
+  return res.json();
+}

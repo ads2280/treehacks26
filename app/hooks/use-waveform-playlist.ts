@@ -163,12 +163,27 @@ export function useWaveformPlaylist({
     return () => {
       cancelled = true;
 
+      // Stop playback BEFORE removing listeners — prevents audio leak on navigation
       const ee = eeRef.current;
       if (ee) {
+        try { ee.emit("stop"); } catch { /* noop */ }
         if (onTimeUpdateListener) ee.off("timeupdate", onTimeUpdateListener);
         if (onFinishedListener) ee.off("finished", onFinishedListener);
         if (onRenderedListener) ee.off("audiosourcesrendered", onRenderedListener);
         if (onSelectListener) ee.off("select", onSelectListener);
+      }
+
+      // Close the Web Audio API context to fully release audio resources.
+      // Without this, the AudioContext keeps playing even after DOM removal,
+      // causing duplicate audio when the user navigates back and a new context is created.
+      const playlist = playlistRef.current;
+      if (playlist) {
+        try {
+          const ac = playlist.ac || playlist.audioContext;
+          if (ac && typeof ac.close === "function" && ac.state !== "closed") {
+            ac.close();
+          }
+        } catch { /* noop */ }
       }
 
       if (container) {

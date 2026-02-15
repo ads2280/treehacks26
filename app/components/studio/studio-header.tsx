@@ -7,6 +7,7 @@ import {
   Download,
   ChevronDown,
   FileText,
+  Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Layer } from "@/lib/layertune-types";
@@ -20,6 +21,7 @@ interface StudioHeaderProps {
   onToggleLyrics?: () => void;
   onExportMix?: () => Promise<Blob | null>;
   showLanding?: boolean;
+  onCreateVideo?: () => void;
 }
 
 export function StudioHeader({
@@ -29,6 +31,7 @@ export function StudioHeader({
   onToggleLyrics,
   onExportMix,
   showLanding,
+  onCreateVideo,
 }: StudioHeaderProps) {
   const [exportOpen, setExportOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -102,6 +105,19 @@ export function StudioHeader({
           >
             <FileText className="w-4 h-4" />
             <span className="hidden sm:inline">Lyrics</span>
+          </Button>
+        )}
+
+        {/* Music Video */}
+        {layers.length > 0 && onCreateVideo && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onCreateVideo}
+            className="bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white flex items-center gap-1.5"
+          >
+            <Video className="w-4 h-4" />
+            <span className="hidden sm:inline">Music Video</span>
           </Button>
         )}
 

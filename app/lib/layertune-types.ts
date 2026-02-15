@@ -233,3 +233,61 @@ export const SMART_SUGGESTIONS: SmartSuggestion[] = [
   { label: "+ Guitar", stemType: "guitar", defaultTags: "guitar, acoustic, strumming" },
   { label: "+ Synth", stemType: "synth", defaultTags: "synth, electronic, pad" },
 ];
+
+// --- Video Generation ---
+
+export type VideoGenerationPhase =
+  | "idle"
+  | "parsing_lyrics"
+  | "generating_backgrounds"
+  | "uploading_assets"
+  | "generating_video"
+  | "polling"
+  | "complete"
+  | "error";
+
+export type VideoTheme =
+  | "concert_stage"
+  | "music_video"
+  | "minimalist"
+  | "retro_vhs"
+  | "neon_city";
+
+export const VIDEO_THEME_LABELS: Record<VideoTheme, string> = {
+  concert_stage: "Concert Stage",
+  music_video: "Music Video",
+  minimalist: "Minimalist",
+  retro_vhs: "Retro VHS",
+  neon_city: "Neon City",
+};
+
+export const VIDEO_THEME_PROMPTS: Record<VideoTheme, string> = {
+  concert_stage: "A dramatic concert stage with spotlights, crowd silhouettes, and atmospheric haze",
+  music_video: "A cinematic music video set with professional lighting and stylized backdrop",
+  minimalist: "A clean, minimal environment with soft gradients and subtle geometric shapes",
+  retro_vhs: "A retro VHS aesthetic with scan lines, warm analog colors, and vintage grain",
+  neon_city: "A neon-lit cyberpunk cityscape at night with glowing signs and rain-slicked streets",
+};
+
+export interface VideoStyleConfig {
+  mode: "preset" | "custom" | "lyrics-driven" | "surprise";
+  theme: VideoTheme | null;
+  freeTextPrompt: string;
+}
+
+export interface HeyGenUploadResponse {
+  id: string;
+  image_key?: string;
+  url: string;
+}
+
+export interface HeyGenVideoResponse {
+  video_id: string;
+}
+
+export interface HeyGenVideoStatus {
+  status: "pending" | "processing" | "completed" | "failed";
+  video_url?: string;
+  thumbnail_url?: string;
+  duration?: number;
+}

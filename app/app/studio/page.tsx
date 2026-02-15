@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, Suspense } from "react";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useProject } from "@/hooks/use-project";
@@ -28,6 +29,8 @@ const ChatPanel = dynamic(
 );
 
 function StudioApp() {
+  const router = useRouter();
+
   const {
     project,
     layers,
@@ -43,6 +46,7 @@ function StudioApp() {
     setVibePrompt,
     setProjectLyrics,
     setOriginalClipId,
+    resetProject,
     pushVersion,
     navigateVersionOlder,
     navigateVersionNewer,
@@ -64,6 +68,14 @@ function StudioApp() {
   const setLyrics = setProjectLyrics;
   const [lyricsOpen, setLyricsOpen] = useState(false);
 
+  // Persist ephemeral UI state to sessionStorage for seamless back-navigation
+  useEffect(() => {
+    try { sessionStorage.setItem("producething_zoom", String(zoom)); } catch { /* ignore */ }
+  }, [zoom]);
+  useEffect(() => {
+    try { sessionStorage.setItem("producething_lyricsOpen", String(lyricsOpen)); } catch { /* ignore */ }
+  }, [lyricsOpen]);
+
   // Persist model/agent preferences in localStorage
   const [modelProvider, setModelProviderState] = useState<ModelProvider>("openai");
   const [agentMode, setAgentModeState] = useState(false);
@@ -80,6 +92,37 @@ function StudioApp() {
         }
       } catch { /* ignore */ }
     }
+  }, []);
+
+  // Hydrate UI state from storage after mount — must happen in useEffect (not
+  // useState initializer) to avoid SSR hydration mismatch. React 18 batches
+  // all these updates into a single re-render so the flash is imperceptible.
+  const uiHydrated = useRef(false);
+  useEffect(() => {
+    if (uiHydrated.current) return;
+    uiHydrated.current = true;
+    try {
+      const z = parseFloat(sessionStorage.getItem("producething_zoom") || "1");
+      if (z && z !== 1) setZoom(z);
+    } catch { /* ignore */ }
+    try {
+      if (sessionStorage.getItem("producething_lyricsOpen") === "true") setLyricsOpen(true);
+    } catch { /* ignore */ }
+    try {
+      const raw = localStorage.getItem("producething_chat_messages");
+      if (raw) {
+        const msgs = JSON.parse(raw);
+        if (Array.isArray(msgs) && msgs.length > 0) setChatActive(true);
+      }
+    } catch { /* ignore */ }
+    try {
+      const raw = localStorage.getItem("producething_project");
+      if (raw) {
+        const data = JSON.parse(raw);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (data.layers?.some((l: any) => !!l.audioUrl)) setSessionStarted(true);
+      }
+    } catch { /* ignore */ }
   }, []);
   const setModelProvider = useCallback((p: ModelProvider) => {
     setModelProviderState(p);
@@ -734,30 +777,53 @@ function StudioApp() {
 
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [chatActive, setChatActive] = useState(false);
+  // Incrementing chatSessionKey forces ChatPanel to remount fresh —
+  // clears stale initialMessages (including incomplete tool calls that
+  // would keep useChat status stuck and block sendMessage).
+  const [chatSessionKey, setChatSessionKey] = useState(0);
+
+  // Shared "start fresh session" logic for both entry modes
+  const startFreshSession = useCallback((prompt: string) => {
+    resetProject();
+    try { localStorage.removeItem("producething_chat_messages"); } catch { /* ignore */ }
+    setChatSessionKey((k) => k + 1);
+    setPendingMessage(prompt);
+    setChatActive(true);
+  }, [resetProject]);
 
   // Pick up prompt from URL (landing page → studio navigation)
   const urlPromptConsumed = useRef(false);
   useEffect(() => {
     if (urlPrompt && !urlPromptConsumed.current) {
       urlPromptConsumed.current = true;
-      setPendingMessage(urlPrompt);
-      setChatActive(true);
+      startFreshSession(urlPrompt);
       window.history.replaceState({}, "", "/studio");
     }
-  }, [urlPrompt]);
+  }, [urlPrompt, startFreshSession]);
 
   const handleLandingSubmit = useCallback((prompt: string) => {
-    setPendingMessage(prompt);
-    setChatActive(true);
-  }, []);
+    startFreshSession(prompt);
+  }, [startFreshSession]);
 
   // Stable callback — inline arrows would create new refs every render,
   // causing ChatPanel's useEffect to re-run and cancel the sendMessage timeout.
   const handlePendingConsumed = useCallback(() => setPendingMessage(null), []);
 
-  // Track whether the user has actively started a session in THIS page load.
-  // Once true, stays true for the rest of the page's lifetime.
-  const [sessionStarted, setSessionStarted] = useState(false);
+  // Track whether the user has actively started a session in this tab.
+  // Initialized from sessionStorage so it survives page navigations (e.g.
+  // studio → video → back) and refreshes, but clears when the tab closes
+  // so new tabs always show the landing page.
+  const [sessionStarted, setSessionStarted] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return sessionStorage.getItem("producething_session_active") === "true";
+  });
+
+  // Persist session flag to sessionStorage whenever it becomes true
+  useEffect(() => {
+    if (sessionStarted) {
+      try { sessionStorage.setItem("producething_session_active", "true"); } catch { /* ignore */ }
+    }
+  }, [sessionStarted]);
 
   // Detect existing project: if localStorage has layers with audio, this is a
   // valid project the user was working on — skip straight to the studio.
@@ -786,6 +852,16 @@ function StudioApp() {
         onToggleLyrics={() => setLyricsOpen((o) => !o)}
         onExportMix={exportAudio}
         showLanding={showLanding}
+        onCreateVideo={() => {
+          // Stop audio before navigating — cleanup also runs on unmount,
+          // but explicitly stopping is more reliable and immediate
+          stopAudio();
+          setIsPlaying(false);
+          if (previewAudioRef.current) {
+            previewAudioRef.current.pause();
+          }
+          router.push("/studio/video");
+        }}
       />
 
       {/* Landing overlay — covers the studio when no project */}
@@ -807,6 +883,7 @@ function StudioApp() {
       <div className={`flex-1 flex overflow-hidden ${showLanding ? "invisible absolute" : ""}`}>
         {/* Left: AI Chat */}
         <ChatPanel
+          key={chatSessionKey}
           project={project}
           isGenerating={isInitialGenerating}
           hasLayers={layers.length > 0}
