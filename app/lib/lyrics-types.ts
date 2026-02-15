@@ -30,6 +30,88 @@ export interface Annotations {
   };
 }
 
+export interface RhymeTargetSuggestion {
+  target: string;
+  rhymes: string[];
+  rationale?: string;
+}
+
+export interface LyricsLLMInsights {
+  theme: string;
+  context: string;
+  rhymeTargets: RhymeTargetSuggestion[];
+  writingTips: string[];
+}
+
+export interface LyricsAutocompleteSuggestion {
+  completion: string;
+  alternatives: string[];
+  rhymeHints: string[];
+  contextHint: string;
+  targetSyllables?: number;
+  targetRhyme?: string;
+}
+
+export interface LyricsCoachResponse {
+  answer: string;
+  completions: string[];
+  rhymeHints: string[];
+  focusTechnique?: string;
+}
+
+export interface RhymeSchemeEntry {
+  lineId: string;
+  text: string;
+  scheme: string;
+  endWord: string;
+  syllables: number;
+}
+
+export interface CadenceProfile {
+  avgSyllables: number;
+  minSyllables: number;
+  maxSyllables: number;
+  variance: number;
+  swing: "tight" | "balanced" | "loose";
+  targetRange: [number, number];
+}
+
+export interface StructureSection {
+  tag: string;
+  lineIds: string[];
+  lineCount: number;
+}
+
+export type ProTechniqueType =
+  | "multisyllabic-rhyme"
+  | "internal-rhyme"
+  | "metaphor"
+  | "punchline"
+  | "cadence"
+  | "structure";
+
+export interface ProTechniqueSuggestion {
+  id: string;
+  type: ProTechniqueType;
+  title: string;
+  explanation: string;
+  lineId?: string;
+  rewrite?: string;
+  insertion?: string;
+}
+
+export interface LyricsProAnalysis {
+  summary: string;
+  rhymeScheme: RhymeSchemeEntry[];
+  cadence: CadenceProfile;
+  structure: {
+    sections: StructureSection[];
+    recommendedNextSection: string;
+    rationale: string;
+  };
+  suggestions: ProTechniqueSuggestion[];
+}
+
 export type EditOp =
   | { type: "replace_span"; line_id: string; start: number; end: number; text: string }
   | { type: "replace_line"; line_id: string; text: string }
