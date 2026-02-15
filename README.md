@@ -1,179 +1,220 @@
-# ProduceThing
+<!-- Badges -->
+<p align="center">
+  <img src="https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript" />
+  <img src="https://img.shields.io/badge/Tailwind-4-06B6D4?style=flat-square&logo=tailwindcss" />
+  <img src="https://img.shields.io/badge/Modal-T4_GPU-green?style=flat-square" />
+  <img src="https://img.shields.io/badge/Suno-API-ff6b35?style=flat-square" />
+  <img src="https://img.shields.io/badge/Vercel_AI_SDK-v6-000?style=flat-square&logo=vercel" />
+  <img src="https://img.shields.io/badge/Claude-Opus_4.6-d4a574?style=flat-square&logo=anthropic" />
+</p>
 
-**AI-powered music composition studio with music video generation.** Describe a vibe, build your track layer by layer, then turn it into a lip-synced music video with your face as the avatar.
+<h1 align="center">ProduceThing</h1>
+<p align="center"><strong>Layer-by-layer AI music composition. Describe a vibe, build a track, own the process.</strong></p>
+<p align="center"><em>TreeHacks 2026</em></p>
 
-Built at **TreeHacks 2026**.
-
----
-
-## What It Does
-
-### 1. Compose Music Through Conversation
-Describe a mood ("chill lo-fi sunset vibes") and ProduceThing generates a full track via Suno. The track is automatically separated into stems (drums, bass, vocals, guitar, etc.) so you can:
-
-- **Add layers** individually from cached stems or generate new ones
-- **Regenerate** any single layer without affecting the rest
-- **A/B compare** old vs new versions of a layer
-- **Mix** with per-layer volume, mute, and solo controls
-- **Export** the final mix as WAV or download individual stems
-
-### 2. AI Chat Assistant
-Talk to the AI to control your composition hands-free. Supports two modes:
-
-- **Normal mode** (GPT-5 Nano) — fast, lightweight responses
-- **Agent mode** (Claude Opus 4.6) — autonomous multi-step composition from a single prompt. Plans, executes, observes, and iterates.
-
-Six tools available: `generate_track`, `add_layer`, `regenerate_layer`, `remove_layer`, `set_lyrics`, `get_composition_state`.
-
-### 3. Music Video Generation
-Take a selfie, pick a visual style, and ProduceThing creates a music video:
-
-1. **Selfie capture** via browser camera
-2. **Style selection** — preset themes or custom text prompt
-3. **Background generation** — GPT-5 writes a scene description from lyrics, DALL-E generates the image
-4. **Avatar creation** — your selfie becomes a HeyGen talking-photo avatar
-5. **Video rendering** — HeyGen lip-syncs your avatar to the song audio with background and lyrics overlay
-6. **Result** — shareable MP4 video
+<p align="center"><img src="docs/demo.gif" width="720" /></p>
 
 ---
 
-## Tech Stack
+## The Problem: The Notes App Graveyard
 
-| Layer | Technology |
-|---|---|
-| Framework | Next.js 16, React 19, TypeScript, App Router |
-| Styling | Tailwind CSS 4, Radix UI, lucide-react |
-| AI Chat | Vercel AI SDK v6 — GPT-5 Nano + Claude Opus 4.6 |
-| Music Generation | Suno API (generate, stem separation) |
-| Stem Separation | Suno /stem (12 stems) + Modal Demucs (3 stems, GPU-accelerated) |
-| Audio Playback | waveform-playlist + Web Audio API |
-| Video Generation | HeyGen API v2 (talking photo avatars, video rendering) |
-| Background Images | OpenAI DALL-E 2 + GPT-5 (scene descriptions) |
-| Lyrics Parsing | Custom parser with structure tag detection |
-| Persistence | localStorage (no database) |
-| Deployment | Vercel (iad1 region) + Modal (Demucs T4 GPU) |
-| Testing | Vitest + Testing Library + Playwright |
+Every AI music tool today works the same way: type a prompt, get a song, feel nothing.
+
+The result is a **graveyard of generated tracks nobody cares about** — the musical equivalent of abandoned notes apps. You didn't *make* anything. You typed a sentence and an API returned a file. There's no ownership, no creative process, no reason to come back.
+
+The problem isn't the AI. It's the workflow. When you hand someone a finished song, you skip the part that makes music feel like *yours* — the 50 micro-decisions about which drums hit harder, whether the bass should be darker, if the vocals need more grit.
+
+**ProduceThing gives those decisions back.** You start with a vibe. We split it into stems. You add, remove, regenerate, and mix individual layers through natural language — or let an autonomous agent compose for you while you watch it think. Every track is built through a chain of creative choices, not a single prompt.
 
 ---
 
-## Setup
+## Technical Deep Dive
+
+### 1. Parallelized Stem Separation Pipeline
+
+The biggest UX bottleneck in stem separation is latency. Suno's `/stem` endpoint splits a track into 12 stems but takes 60-120s. We couldn't ship that wait time.
+
+**Solution: Race two pipelines in parallel and deduplicate with a first-wins strategy.**
+
+```
+Track complete ──┬── Modal Demucs (T4 GPU, htdemucs) ── 3 stems in ~20s
+                 │
+                 └── Suno /stem API ───────────────── 12 stems in 60-120s
+                                                        │
+                              deliveredStems (Set) ◄────┘
+                              First pipeline to deliver each stem wins.
+```
+
+**How it works:**
+
+- After Suno generation completes (`status=complete`), we fire **both** pipelines simultaneously
+- A `Set<StemType>` called `deliveredStems` tracks what's arrived — if Demucs delivers `drums` first, Suno's `drums` is silently dropped
+- **Core stems** (drums, vocals, bass) buffer in a `pendingCore` Map. Once all 3 arrive — from whichever pipeline — we do an **atomic swap**: remove the full-mix placeholder layer, add 3 individual stem layers in one React state update. No flicker.
+- **Non-core stems** (guitar, keyboard, strings, etc.) go to `stemCache` for instant manual adds later
+- Demucs failure is swallowed with `.catch()` — Suno handles all 12 stems as fallback. **Zero degradation.**
+
+**The Modal side:** Our `demucs_endpoint.py` runs `htdemucs` (Hybrid Transformer Demucs) on a T4 GPU with pre-downloaded weights baked into the container image — no runtime download delay. One warm instance stays alive (`keep_warm=1`) to eliminate cold starts.
+
+**Result:** Users get their first playable stems in ~20s instead of 60-120s. The remaining 9 stems trickle in via Suno's progressive polling while the user is already mixing.
+
+### 2. Lyric Analysis Engine
+
+We built a real-time lyric analysis system that runs **entirely client-side** — no round-trip to an LLM for basic feedback. It catches problems as you type.
+
+**Syllable counting** uses the `syllable` npm package for per-line cadence analysis. We feed this into a **cadence profiler** (`rap-theory.ts`) that computes avg/min/max syllables, variance, and classifies flow as "tight," "balanced," or "loose."
+
+**Rhyme detection** uses a custom phonetic normalization pipeline:
+
+```typescript
+// English spelling is a disaster. We normalize before comparing.
+const SUFFIX_NORMALIZATIONS: [RegExp, string][] = [
+  [/ight$/, "ite"],   // "night" → "nite"
+  [/ould$/, "ood"],   // "would" → "wood"
+  [/tion$/, "shun"],  // "nation" → "nashun"
+  [/sion$/, "shun"],  // "vision" → "vishun"
+  [/ck$/, "k"],       // "rock" → "rok"
+  // ... 6 more rules
+];
+```
+
+After normalization, we extract the last 3 characters as a `rhymeKey` and cluster lines that share endings. Lines with ≥2 matches form rhyme groups — this feeds into an **ABAB rhyme scheme builder** that labels patterns across verses.
+
+**Cliche detection** matches against 48 hardcoded phrases ("heart on my sleeve," "dance in the rain," etc.) and highlights them inline. **Filler word detection** flags weak words ("basically," "literally," "you know"). **Repetition tracking** tokenizes the full lyric, counts unigrams appearing ≥3x and n-grams (2-3 word phrases) appearing ≥2x, and annotates them with `"word" appears Nx` labels.
+
+**On top of the client-side engine**, we have an LLM-powered insight layer (`/api/lyrics/analyze`) that uses GPT-4o-mini to generate thematic analysis, rhyme targets (5 rhymes per target word), and writing tips — with a graceful fallback so the panel never breaks if the LLM fails.
+
+### 3. Dual-Model AI Routing + Agent Mode
+
+We don't use one model for everything. Different tasks need different tradeoffs:
+
+| Mode | Model | Why |
+|------|-------|-----|
+| **Normal** | GPT-5 Nano | Fast, cheap. Good for "add more bass" or "make it darker." Sub-second responses. |
+| **Agent** | Claude Opus 4.6 | Powerful multi-step reasoning. Can compose an entire track autonomously from "make me a lo-fi hip hop beat." |
+
+**The routing logic** is dead simple — if `agentMode` is true, we always use Claude. Otherwise, the user toggles between OpenAI and Anthropic.
+
+**Agent mode is where it gets interesting.** Claude Opus operates in a **Plan → Execute → Observe → Reflect** loop:
+
+1. **Plan**: The agent reasons about what a genre needs ("lo-fi hip hop typically has mellow drums, a jazzy bass, and vinyl-crackle FX")
+2. **Execute**: Calls `generate_track` → waits for stem separation → chains `add_layer` calls for cached stems
+3. **Observe**: Parses enriched tool results that include cached stem lists and layer counts
+4. **Reflect**: Summarizes what was built and suggests next refinements
+
+The loop is powered by Vercel AI SDK v6's `sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls` — when the assistant's response includes tool calls, the SDK automatically sends tool results back, creating a natural agent loop without custom orchestration.
+
+**Critical implementation detail:** In agent mode, tool callbacks `await` the full Suno generation + stem separation pipeline and return detailed state. In normal mode, they fire-and-forget and return immediately. Same tools, different depth — because the agent needs rich context to chain decisions, but a human user just needs the UI to update.
+
+**6 tools available**: `generate_track`, `add_layer`, `regenerate_layer`, `remove_layer`, `set_lyrics`, `get_composition_state`
+
+---
+
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        User (Browser)                               │
+│                                                                     │
+│  ┌──────────┐  ┌──────────┐  ┌───────────┐  ┌───────────────────┐  │
+│  │ Chat     │  │ Layer    │  │ Waveform  │  │ Transport +       │  │
+│  │ Panel    │  │ Sidebar  │  │ Display   │  │ Master Volume     │  │
+│  │          │  │          │  │           │  │                   │  │
+│  │ Drag a   │  │ Volume   │  │ waveform- │  │ Web Audio API     │  │
+│  │ layer ──►│  │ Mute     │  │ playlist  │  │ (GainNode mixing) │  │
+│  │ to chat  │  │ Solo     │  │ (canvas)  │  │                   │  │
+│  └────┬─────┘  └──────────┘  └───────────┘  └───────────────────┘  │
+│       │                                                             │
+└───────┼─────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌───────────────────────── Next.js API Routes ─────────────────────────┐
+│                                                                      │
+│  /api/chat ──────────┬──► GPT-5 Nano (normal mode)                   │
+│                      └──► Claude Opus 4.6 (agent mode)               │
+│                           │                                          │
+│                           ▼ (tool calls)                             │
+│  /api/generate ─────────► Suno /generate ──► poll /clips             │
+│                                                   │                  │
+│                                    status=complete │                  │
+│                                                   ▼                  │
+│  /api/stem ─────────────► Suno /stem (12 stems) ──┐                  │
+│  /api/stem-demucs ──────► Modal htdemucs (3 stems)─┤ RACE            │
+│                                                    ▼                 │
+│                                          deliveredStems (Set)        │
+│                                          First-wins dedup            │
+│                                                   │                  │
+│  /api/audio-proxy ◄───── CDN whitelist proxy ◄────┘                  │
+│                                                                      │
+│  /api/lyrics/analyze ──► GPT-4o-mini (theme + rhyme targets)         │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+        │                              │
+        ▼                              ▼
+┌──────────────┐            ┌──────────────────┐
+│  Suno API    │            │  Modal (T4 GPU)  │
+│              │            │                  │
+│  • Generate  │            │  htdemucs        │
+│  • Stem (12) │            │  Pre-baked       │
+│  • Clips     │            │  weights         │
+│              │            │  keep_warm=1     │
+└──────────────┘            └──────────────────┘
+```
+
+---
+
+## Local Setup
 
 ```bash
-cd app
-cp .env.example .env.local   # then fill in the values below
+git clone https://github.com/ads2280/treehacks26.git
+cd treehacks26/app
+cp .env.example .env.local
 npm install
-npm run dev                   # http://localhost:3000
+npm run dev
 ```
 
 ### Environment Variables
 
-| Variable | Required | Description |
+| Variable | Required | What it does |
 |---|---|---|
-| `SUNO_API_KEY` | Yes | Suno API bearer token for music generation + stem separation |
-| `OPENAI_API_KEY` | Yes | OpenAI key for AI chat (GPT-5 Nano) and background generation (DALL-E 2) |
-| `ANTHROPIC_API_KEY` | Yes | Anthropic key for Claude Opus 4.6 agent mode |
-| `HEYGEN_API_KEY` | Yes | HeyGen API key for music video generation |
-| `MODAL_DEMUCS_URL` | Optional | Modal Demucs endpoint URL for faster stem separation |
+| `SUNO_API_KEY` | Yes | Bearer token for Suno music generation + stem separation |
+| `OPENAI_API_KEY` | Yes | GPT-5 Nano (chat) + GPT-4o-mini (lyric analysis) + DALL-E 2 (video backgrounds) |
+| `ANTHROPIC_API_KEY` | Yes | Claude Opus 4.6 for agent mode |
+| `HEYGEN_API_KEY` | Yes | HeyGen API for music video generation (talking-photo avatars) |
+| `MODAL_DEMUCS_URL` | Optional | Modal Demucs endpoint. Falls back to Suno-only stems if not set. |
 
-### Requirements
-
-- Node.js 18+
-- npm
-
----
-
-## Architecture
-
-### Pages
-
-| Route | Description |
-|---|---|
-| `/` | Landing page with animated card gallery |
-| `/studio` | Main composition studio — layers, waveforms, chat, transport |
-| `/studio/video` | Music video generation — camera, style, generation, result |
-
-### API Routes
-
-| Route | Method | Description |
-|---|---|---|
-| `/api/generate` | POST | Suno track generation proxy |
-| `/api/stem` | POST | Suno 12-stem separation proxy |
-| `/api/stem-demucs` | POST | Modal Demucs 3-stem separation |
-| `/api/clips` | GET | Suno clip status polling |
-| `/api/chat` | POST | AI chat with dual model routing + tool calling |
-| `/api/audio-proxy` | GET | CDN audio proxy (Suno + Modal URLs) |
-| `/api/generate-backgrounds` | POST | GPT-5 scene description + DALL-E image generation |
-| `/api/heygen/upload` | POST | Asset upload to HeyGen (images, audio, talking photos) |
-| `/api/heygen/generate` | POST | HeyGen video generation |
-| `/api/heygen/status` | GET | HeyGen video status polling |
-| `/api/heygen/streaming-token` | POST | HeyGen streaming session token |
-| `/api/video/upload` | POST | Local video file storage |
-
-### Key Files
-
-```
-app/
-├── app/studio/page.tsx           # Studio orchestrator — generation, stems, layers
-├── app/studio/video/page.tsx     # Video generation pipeline — camera → style → render
-├── hooks/use-project.ts          # All project state + localStorage persistence
-├── hooks/use-waveform-playlist.ts # Waveform rendering + Web Audio playback
-├── lib/api.ts                    # Client-side API helpers + polling functions
-├── lib/suno.ts                   # Server-side Suno client (retry, normalize)
-├── lib/heygen.ts                 # Server-side HeyGen client (upload, avatar, video)
-├── lib/lyrics-parser.ts          # Lyrics → sections with structure tags
-├── lib/layertune-types.ts        # Shared types, constants, color maps
-├── components/studio/            # Studio UI components (chat, layers, transport, etc.)
-├── components/video/             # Video UI components (camera, styles, overlay, result)
-└── components/ui/                # Radix-based headless primitives
-modal/
-└── demucs_endpoint.py            # Modal GPU function — htdemucs stem separation
-```
-
-### Generation Pipelines
-
-**Music generation** (parallel stem delivery):
-```
-User prompt → Suno generate → poll until complete →
-  ├── Demucs (3 stems, ~20s) ─┐
-  └── Suno /stem (12 stems) ──┤→ deduplicate → layers
-                               └── first-to-deliver wins
-```
-
-**Video generation** (sequential):
-```
-Selfie capture → style selection →
-  GPT-5 scene description → DALL-E background →
-  Upload selfie → HeyGen avatar group → poll until ready →
-  Upload audio + background →
-  HeyGen video generate → poll until rendered → MP4 result
-```
-
----
-
-## Commands
+### Modal Demucs (optional, but recommended)
 
 ```bash
-cd app && npm run dev          # Dev server (port 3000)
-cd app && npm run build        # Production build
-cd app && npm test             # Run tests
-cd app && npm run test:watch   # Watch mode
+pip install modal
+modal deploy modal/demucs_endpoint.py
+# Copy the deployed URL → MODAL_DEMUCS_URL
+```
+
+### Commands
+
+```bash
+npm run dev          # Dev server on :3000
+npm run build        # Production build
+npm test             # Vitest
+npm run test:watch   # Vitest watch
 ```
 
 ---
 
-## Deployment
+## What We Built (and Why)
 
-Configured for Vercel with function-specific timeouts in `vercel.json`. The Demucs stem separation runs on Modal with a T4 GPU. All generated backgrounds and videos are stored locally in `public/generated-backgrounds/` and `public/generated-videos/` (gitignored).
+| Feature | Problem it solves | How it works |
+|---|---|---|
+| **Parallel stem pipeline** | 60-120s wait is a UX killer | Race Modal (T4) vs Suno, deduplicate with `Set`, atomic layer swap |
+| **Layer-by-layer composition** | "I typed a prompt and got a song" isn't creative | Stems cached → instant add/remove, A/B comparison on regenerate |
+| **Agent mode** | Complex compositions need multi-step reasoning | Claude Opus Plan→Execute→Observe→Reflect loop via AI SDK v6 |
+| **Lyric analysis engine** | Writers need feedback, not just a text box | Client-side syllable/rhyme/cliche/repetition analysis + LLM insights |
+| **Drag-layer-to-chat** | Targeting a specific layer by typing its name is friction | Drag from sidebar → chat prefixes message with layer context |
+| **Music video generation** | A track without visuals isn't shareable | Selfie → HeyGen avatar → DALL-E background → lip-synced MP4 |
+| **Suno retry + normalization** | Suno API returns inconsistent formats and rate-limits aggressively | Exponential backoff + `Retry-After` header + response normalization |
 
 ---
 
-## Prize Targets
-
-- **Suno: Best Musical Hack** — layer-by-layer composition with stem separation
-- **TreeHacks Grand Prize** — full-stack AI creative tool
-- **Greylock: Best Multi-Turn Agent** — Claude Opus agent mode
-- **Anthropic: Best Use of Claude Agent SDK** — autonomous composition agent
-- **Vercel: Best Deployed on Vercel** — Next.js 16 App Router
-- **Modal: Inference Track** — Demucs GPU pipeline
-- **Decagon: Best Conversation Assistant** — AI chat with 6 tools
-- **Most Creative** — music video from selfie + AI
+<p align="center"><strong>Built in 36 hours at TreeHacks 2026.</strong></p>
