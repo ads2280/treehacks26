@@ -12,13 +12,12 @@ export type StemType =
   | "brass"
   | "woodwinds";
 
-export type ABState = "none" | "comparing" | "a_selected" | "b_selected";
-
 export type LayerGenerationStatus = "generating" | "separating" | "loading" | "error";
 
 export type GenerationPhase =
   | "idle"
   | "generating"
+  | "previewing"
   | "separating"
   | "loading"
   | "complete"
@@ -38,7 +37,7 @@ export interface Layer {
   stemType: StemType;
   prompt: string;
   audioUrl: string | null;
-  previousAudioUrl: string | null;
+
   volume: number;
   isMuted: boolean;
   isSoloed: boolean;
@@ -67,7 +66,8 @@ export interface Project {
   layers: Layer[];
   originalClipId: string | null;
   stemCache: CachedStem[];
-  abState: Record<string, ABState>;
+  lyrics: string;
+
   createdAt: string;
   updatedAt: string;
 }

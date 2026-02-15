@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { Project, Layer, LayerVersion, ABState, StemType, CachedStem } from "@/lib/layertune-types";
+import { flushSync } from "react-dom";
+import type { Project, Layer, LayerVersion, StemType, CachedStem } from "@/lib/layertune-types";
 
 const STORAGE_KEY = "producething_project";
 
@@ -14,7 +15,7 @@ function createEmptyProject(): Project {
     layers: [],
     originalClipId: null,
     stemCache: [],
-    abState: {},
+    lyrics: "",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -31,6 +32,14 @@ function loadProject(): Project {
       // stuck in "generating"/"separating"/"loading" will never resolve.
       // - Layers WITH audioUrl: clear status → playable
       // - Layers WITHOUT audioUrl: dead placeholders → remove entirely
+      // Migrate: default lyrics for projects from before lyrics persistence
+      if (project.lyrics == null) project.lyrics = "";
+      // Clean stemCache: remove entries with empty/broken audioUrls
+      if (Array.isArray(project.stemCache)) {
+        project.stemCache = project.stemCache.filter(
+          (s) => s.audioUrl && s.audioUrl !== "/api/audio-proxy?url="
+        );
+      }
       project.layers = project.layers
         .filter((l) => l.audioUrl || !l.generationStatus)
         .map((l) => {
@@ -59,6 +68,9 @@ function saveProject(project: Project) {
     const toSave = {
       ...project,
       layers: project.layers.map(({ generationStatus: __status, ...rest }) => rest), // eslint-disable-line @typescript-eslint/no-unused-vars
+      stemCache: project.stemCache.filter(
+        (s) => s.audioUrl && s.audioUrl !== "/api/audio-proxy?url="
+      ),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   } catch {
@@ -99,6 +111,13 @@ export function useProject() {
     [updateProject]
   );
 
+  const setProjectLyrics = useCallback(
+    (lyrics: string) => {
+      updateProject({ lyrics });
+    },
+    [updateProject]
+  );
+
   const setOriginalClipId = useCallback(
     (clipId: string) => {
       updateProject({ originalClipId: clipId });
@@ -129,16 +148,11 @@ export function useProject() {
   );
 
   const removeLayer = useCallback((layerId: string) => {
-    setProject((prev) => {
-      const abCopy = { ...prev.abState };
-      delete abCopy[layerId];
-      return {
-        ...prev,
-        layers: prev.layers.filter((l) => l.id !== layerId),
-        abState: abCopy,
-        updatedAt: new Date().toISOString(),
-      };
-    });
+    setProject((prev) => ({
+      ...prev,
+      layers: prev.layers.filter((l) => l.id !== layerId),
+      updatedAt: new Date().toISOString(),
+    }));
   }, []);
 
   const updateLayer = useCallback(
@@ -181,75 +195,6 @@ export function useProject() {
     }));
   }, []);
 
-  const setABState = useCallback((layerId: string, state: ABState) => {
-    setProject((prev) => ({
-      ...prev,
-      abState: { ...prev.abState, [layerId]: state },
-      updatedAt: new Date().toISOString(),
-    }));
-  }, []);
-
-  const startABComparison = useCallback(
-    (layerId: string) => {
-      setABState(layerId, "comparing");
-    },
-    [setABState]
-  );
-
-  const keepA = useCallback((layerId: string) => {
-    setProject((prev) => {
-      const layer = prev.layers.find((l) => l.id === layerId);
-      if (!layer || !layer.previousAudioUrl) return prev;
-      // Push discarded B (current audioUrl) to version history
-      const bVersion: LayerVersion = {
-        audioUrl: layer.audioUrl!,
-        sunoClipId: layer.sunoClipId,
-        prompt: layer.prompt,
-        createdAt: new Date().toISOString(),
-      };
-      return {
-        ...prev,
-        layers: prev.layers.map((l) =>
-          l.id === layerId
-            ? {
-                ...l,
-                audioUrl: l.previousAudioUrl,
-                previousAudioUrl: null,
-                versions: [bVersion, ...(l.versions || [])],
-              }
-            : l
-        ),
-        abState: { ...prev.abState, [layerId]: "none" },
-        updatedAt: new Date().toISOString(),
-      };
-    });
-  }, []);
-
-  const keepB = useCallback((layerId: string) => {
-    setProject((prev) => {
-      const layer = prev.layers.find((l) => l.id === layerId);
-      if (!layer) return prev;
-      // Push discarded A (previousAudioUrl) to version history
-      const versions = [...(layer.versions || [])];
-      if (layer.previousAudioUrl) {
-        versions.unshift({
-          audioUrl: layer.previousAudioUrl,
-          sunoClipId: null,
-          prompt: layer.prompt,
-          createdAt: new Date().toISOString(),
-        });
-      }
-      return {
-        ...prev,
-        layers: prev.layers.map((l) =>
-          l.id === layerId ? { ...l, previousAudioUrl: null, versions } : l
-        ),
-        abState: { ...prev.abState, [layerId]: "none" },
-        updatedAt: new Date().toISOString(),
-      };
-    });
-  }, []);
-
   const setStemCache = useCallback(
     (stems: CachedStem[]) => {
       updateProject({ stemCache: stems });
@@ -269,6 +214,28 @@ export function useProject() {
         return {
           ...prev,
           stemCache: [...prev.stemCache, ...unique],
+          updatedAt: new Date().toISOString(),
+        };
+      });
+    },
+    []
+  );
+
+  // Atomically remove ONE cached stem by type — uses functional updater to
+  // avoid overwriting stems added by concurrent background polling (Bug #9)
+  const removeStemFromCache = useCallback(
+    (stemType: StemType) => {
+      setProject((prev) => {
+        const idx = prev.stemCache.findIndex(
+          (s) => s.stemType === stemType && s.audioUrl && s.audioUrl !== "/api/audio-proxy?url="
+        );
+        if (idx === -1) return prev;
+        return {
+          ...prev,
+          stemCache: [
+            ...prev.stemCache.slice(0, idx),
+            ...prev.stemCache.slice(idx + 1),
+          ],
           updatedAt: new Date().toISOString(),
         };
       });
@@ -370,21 +337,29 @@ export function useProject() {
     []
   );
 
+  // Atomically find + remove a cached stem. Uses flushSync so the setProject
+  // updater runs synchronously — `found` is set before we return it.
+  // The functional updater reads `prev` (latest state including pending
+  // appendStemCache additions), so this never clobbers concurrent cache writes.
   const consumeCachedStem = useCallback(
     (stemType: StemType): CachedStem | null => {
       let found: CachedStem | null = null;
-      setProject((prev) => {
-        const idx = prev.stemCache.findIndex((s) => s.stemType === stemType);
-        if (idx === -1) return prev;
-        found = prev.stemCache[idx];
-        return {
-          ...prev,
-          stemCache: [
-            ...prev.stemCache.slice(0, idx),
-            ...prev.stemCache.slice(idx + 1),
-          ],
-          updatedAt: new Date().toISOString(),
-        };
+      flushSync(() => {
+        setProject((prev) => {
+          const idx = prev.stemCache.findIndex(
+            (s) => s.stemType === stemType && s.audioUrl && s.audioUrl !== "/api/audio-proxy?url="
+          );
+          if (idx === -1) return prev;
+          found = prev.stemCache[idx];
+          return {
+            ...prev,
+            stemCache: [
+              ...prev.stemCache.slice(0, idx),
+              ...prev.stemCache.slice(idx + 1),
+            ],
+            updatedAt: new Date().toISOString(),
+          };
+        });
       });
       return found;
     },
@@ -399,6 +374,7 @@ export function useProject() {
 
     updateProject,
     setVibePrompt,
+    setProjectLyrics,
     setOriginalClipId,
     resetProject,
     addLayer,
@@ -407,15 +383,12 @@ export function useProject() {
     setLayerVolume,
     toggleMute,
     toggleSolo,
-    setABState,
-    startABComparison,
-    keepA,
-    keepB,
     pushVersion,
     navigateVersionOlder,
     navigateVersionNewer,
     setStemCache,
     appendStemCache,
+    removeStemFromCache,
     consumeCachedStem,
   };
 }

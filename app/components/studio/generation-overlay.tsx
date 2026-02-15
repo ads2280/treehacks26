@@ -8,24 +8,25 @@ interface GenerationOverlayProps {
 }
 
 // Estimated durations for each phase (seconds)
+// Stems now separate in background — overlay only covers generate + load
 const PHASE_ESTIMATES: Record<string, number> = {
-  generating: 120, // ~2 min for Suno clip
-  separating: 180, // ~3 min for stem separation
-  loading: 5, // Quick audio load
+  generating: 20, // ~15-20s until streaming preview starts
+  previewing: 40, // ~30-40s while streaming audio plays, waiting for full quality
+  loading: 5, // Quick audio load + decode
 };
 
 const PHASE_MESSAGES: Record<string, { label: string; sub: string }> = {
   generating: {
     label: "Generating your track",
-    sub: "Composing from your prompt — takes about a minute...",
+    sub: "Composing from your prompt...",
+  },
+  previewing: {
+    label: "Your track is playing",
+    sub: "Finalizing full quality for editing — listen while you wait...",
   },
   loading: {
     label: "Loading audio",
     sub: "Rendering waveform...",
-  },
-  separating: {
-    label: "Separating stems",
-    sub: "Waveforms will appear as each stem completes...",
   },
 };
 
@@ -59,7 +60,7 @@ function formatElapsed(seconds: number): string {
 }
 
 function ProgressBar({ phase }: { phase: GenerationPhase }) {
-  const steps = ["generating", "separating", "loading"] as const;
+  const steps = ["generating", "previewing", "loading"] as const;
   const currentIdx = steps.indexOf(phase as (typeof steps)[number]);
   const [elapsed, setElapsed] = useState(0);
   const phaseStartRef = useRef(0);
@@ -107,7 +108,7 @@ function ProgressBar({ phase }: { phase: GenerationPhase }) {
                     : "text-white/20"
                 }`}
               >
-                {step === "generating" ? "Generate" : step === "separating" ? "Stems" : "Load"}
+                {step === "generating" ? "Generate" : step === "previewing" ? "Preview" : "Load"}
               </span>
             );
           })}
@@ -122,7 +123,7 @@ function ProgressBar({ phase }: { phase: GenerationPhase }) {
 
 export function GenerationOverlay({ phase }: GenerationOverlayProps) {
   const isActive =
-    phase === "generating" || phase === "separating" || phase === "loading";
+    phase === "generating" || phase === "previewing" || phase === "separating" || phase === "loading";
   const justCompleted = phase === "complete";
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);

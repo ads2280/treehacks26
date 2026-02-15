@@ -156,7 +156,6 @@ export async function pollForTargetStem(
           const stemType = stemTitleToType(clip.title);
           if (stemType) resolvedTypes.push(stemType);
           if (stemType === targetStemType) {
-            console.log(`[pollForTargetStem] Found "${targetStemType}" after ${pollCount} polls`);
             return clip;
           }
         }
@@ -180,14 +179,6 @@ export async function pollForTargetStem(
         );
       }
 
-      // Log progress every 3rd poll
-      if (pollCount % 3 === 0) {
-        const completed = clips.filter((c) => c.status === "complete").length;
-        console.log(
-          `[pollForTargetStem] Poll #${pollCount}: ${completed}/${clips.length} done, ` +
-          `looking for "${targetStemType}", found so far: [${resolvedTypes.join(", ")}]`
-        );
-      }
     }
 
     await new Promise((r) => setTimeout(r, intervalMs));

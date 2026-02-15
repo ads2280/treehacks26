@@ -4,6 +4,16 @@ import { useEffect, useRef, useState } from "react"
 import { ChevronDown } from 'lucide-react'
 import Link from "next/link"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
+
+const QUICK_PROMPTS = [
+  { label: "Lofi chill beats", prompt: "lofi hip hop, chill, rainy day vibes, nostalgic" },
+  { label: "Trap banger", prompt: "trap, 808s, hard hitting drums, dark energy" },
+  { label: "Acoustic folk", prompt: "acoustic guitar, folk, warm, storytelling" },
+  { label: "Synth pop", prompt: "synth pop, 80s inspired, bright, danceable" },
+  { label: "Jazz vibes", prompt: "smooth jazz, saxophone, piano, late night" },
+  { label: "EDM drop", prompt: "edm, electronic, heavy bass drop, festival energy" },
+];
 
 function seededRandom(seed: number) {
   const x = Math.sin(seed + 1) * 10000;
@@ -141,6 +151,9 @@ export default function HomePage() {
   const [animationComplete] = useState(false)
   const autoScrollStartTime = useRef<number | null>(null)
   const [isMobile, setIsMobile] = useState(false)
+  const router = useRouter()
+  const [prompt, setPrompt] = useState("")
+  const searchRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const checkMobile = () => {
@@ -339,6 +352,7 @@ export default function HomePage() {
                 </div>
 
                 <div
+                  ref={searchRef}
                   className="absolute inset-0 flex items-center justify-center pointer-events-auto"
                   style={{
                     opacity: scrollProgress > 0.5 ? (scrollProgress - 0.5) * 2 : 0,
@@ -346,19 +360,53 @@ export default function HomePage() {
                     transition: "opacity 0.2s, transform 0.2s",
                   }}
                 >
-                  <div className="flex flex-col items-center px-6">
-                    <h2 className="text-5xl md:text-7xl font-bold text-white mb-6 leading-tight font-serif text-center">
+                  <div className="flex flex-col items-center px-6 w-full max-w-xl">
+                    <h2 className="text-5xl md:text-7xl font-bold text-white mb-8 leading-tight font-serif text-center">
                       Start Producing
                     </h2>
-                    <Link
-                      href="/studio"
-                      className="group relative inline-flex items-center gap-2 px-10 py-4 text-base font-semibold text-black rounded-full bg-[#c4f567] hover:shadow-[0_0_40px_rgba(196,245,103,0.5)] hover:scale-105 transition-all duration-300"
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!prompt.trim()) return;
+                        router.push(`/studio?prompt=${encodeURIComponent(prompt.trim())}`);
+                      }}
+                      className="w-full mb-5"
                     >
-                      <span>Open Studio</span>
-                      <svg className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                        <path d="M3 8h10m0 0L9 4m4 4L9 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </Link>
+                      <div className="relative bg-white/[0.07] border border-white/[0.12] rounded-xl backdrop-blur-sm focus-within:border-[#c4f567]/40 transition-colors">
+                        <input
+                          type="text"
+                          value={prompt}
+                          onChange={(e) => setPrompt(e.target.value)}
+                          placeholder="Describe your music..."
+                          className="w-full bg-transparent px-5 py-4 pr-14 text-white placeholder:text-white/30 focus:outline-none text-base"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!prompt.trim()}
+                          aria-label="Start producing"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-[#c4f567] text-black flex items-center justify-center disabled:opacity-20 hover:shadow-[0_0_20px_rgba(196,245,103,0.5)] hover:scale-110 active:scale-95 transition-all duration-200"
+                        >
+                          <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <path d="M3 8h10m0 0L9 4m4 4L9 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </button>
+                      </div>
+                    </form>
+                    <div className="flex flex-wrap gap-2 justify-center">
+                      {QUICK_PROMPTS.map((qp) => (
+                        <button
+                          key={qp.label}
+                          type="button"
+                          onClick={() => {
+                            setPrompt(qp.prompt);
+                            router.push(`/studio?prompt=${encodeURIComponent(qp.prompt)}`);
+                          }}
+                          className="px-3.5 py-1.5 text-sm rounded-full bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 hover:text-white hover:border-white/20 transition-all"
+                        >
+                          {qp.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
@@ -13,6 +13,26 @@ import { DjHead } from "@/components/icons/dj-head";
 import { Button } from "@/components/ui/button";
 import { SMART_SUGGESTIONS, STEM_COLORS, ALL_STEM_TYPES, STEM_LABELS } from "@/lib/layertune-types";
 import type { StemType, Project, ModelProvider } from "@/lib/layertune-types";
+
+const CHAT_STORAGE_KEY = "producething_chat_messages";
+
+function loadChatMessages(): UIMessage[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as UIMessage[];
+  } catch { /* ignore */ }
+  return [];
+}
+
+function saveChatMessages(messages: UIMessage[]) {
+  if (typeof window === "undefined") return;
+  try {
+    // Only keep the last 50 messages to avoid localStorage bloat
+    const toSave = messages.slice(-50);
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(toSave));
+  } catch { /* ignore - localStorage full */ }
+}
 
 const LAYER_CONTEXT_RE =
   /^\[Editing (.+?) layer \(id: .+?, type: (.+?)\)\]: ([\s\S]+)$/;
@@ -106,9 +126,14 @@ export function ChatPanel({
     stemType: StemType;
   } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  // Restore chat messages from localStorage on mount
+  const [initialMessages] = useState<UIMessage[]>(() => loadChatMessages());
+
   const { messages, sendMessage, addToolOutput, error, regenerate, status } =
     useChat({
       transport,
+      initialMessages,
       sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
       async onToolCall({ toolCall }) {
         const p = projectRef.current;
@@ -207,6 +232,13 @@ export function ChatPanel({
   const isStreaming = status === "streaming";
   const isSubmitted = status === "submitted";
   const isDisabled = isStreaming || isSubmitted || isGenerating;
+
+  // Persist chat messages to localStorage whenever they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      saveChatMessages(messages);
+    }
+  }, [messages]);
 
   // Auto-send pending message from landing page
   // Defer to next tick so useChat transport is fully initialized (AI SDK v6 timing issue)

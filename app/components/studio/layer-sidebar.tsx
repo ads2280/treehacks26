@@ -14,7 +14,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import type { Layer, ABState, LayerGenerationStatus } from "@/lib/layertune-types";
+import type { Layer, LayerGenerationStatus } from "@/lib/layertune-types";
 import { STEM_COLORS, STEM_LABELS } from "@/lib/layertune-types";
 
 const PHASE_LABELS: Record<LayerGenerationStatus, string> = {
@@ -80,28 +80,22 @@ function layerButtonClass(isDisabled: boolean, activeClass?: string): string {
 
 interface LayerSidebarProps {
   layers: Layer[];
-  abState: Record<string, ABState>;
   onToggleMute: (id: string) => void;
   onToggleSolo: (id: string) => void;
   onVolumeChange: (id: string, volume: number) => void;
   onRegenerate: (id: string) => void;
   onDelete: (id: string) => void;
-  onSelectAB: (id: string, version: "a" | "b") => void;
-  onKeepVersion: (id: string, version: "a" | "b") => void;
   onNavigateOlder: (id: string) => void;
   onNavigateNewer: (id: string) => void;
 }
 
 export function LayerSidebar({
   layers,
-  abState,
   onToggleMute,
   onToggleSolo,
   onVolumeChange,
   onRegenerate,
   onDelete,
-  onSelectAB,
-  onKeepVersion,
   onNavigateOlder,
   onNavigateNewer,
 }: LayerSidebarProps) {
@@ -109,9 +103,6 @@ export function LayerSidebar({
     <div className="w-56 flex-shrink-0 border-r border-white/10 overflow-y-auto studio-scroll">
       {layers.map((layer) => {
         const color = STEM_COLORS[layer.stemType];
-        const ab = abState[layer.id] || "none";
-        const isComparing = ab === "comparing" || ab === "a_selected" || ab === "b_selected";
-        const isA = ab === "a_selected";
         const genStatus = layer.generationStatus;
         const isLayerGenerating = !!genStatus && genStatus !== "error";
         const hasVersions = (layer.versions?.length ?? 0) > 0;
@@ -133,7 +124,7 @@ export function LayerSidebar({
               e.dataTransfer.effectAllowed = "copy";
             }}
             className={`border-b border-white/5 transition-colors ${isLayerGenerating ? "opacity-70" : "cursor-grab active:cursor-grabbing"}`}
-            style={{ height: (isComparing && !isLayerGenerating) || (hasVersions && !isLayerGenerating && !isComparing) ? 110 : 80 }}
+            style={{ height: hasVersions && !isLayerGenerating ? 110 : 80 }}
           >
             {/* Main controls */}
             <div className="flex items-center gap-2 px-3 py-2 h-[50px]">
@@ -234,47 +225,8 @@ export function LayerSidebar({
               </div>
             )}
 
-            {/* A/B Comparison panel — hidden while generating */}
-            {isComparing && !isLayerGenerating && (
-              <div className="flex items-center gap-1 px-3 pb-1.5">
-                <button
-                  onClick={() => onSelectAB(layer.id, "a")}
-                  className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${
-                    isA
-                      ? "bg-white/20 text-white"
-                      : "bg-white/5 text-white/40 hover:text-white/60"
-                  }`}
-                >
-                  A
-                </button>
-                <button
-                  onClick={() => onSelectAB(layer.id, "b")}
-                  className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${
-                    !isA
-                      ? "bg-white/20 text-white"
-                      : "bg-white/5 text-white/40 hover:text-white/60"
-                  }`}
-                >
-                  B
-                </button>
-                <div className="flex-1" />
-                <button
-                  onClick={() => onKeepVersion(layer.id, "a")}
-                  className="px-2 py-0.5 text-[10px] rounded bg-white/5 text-white/50 hover:bg-white/10 hover:text-white transition-colors"
-                >
-                  Keep A
-                </button>
-                <button
-                  onClick={() => onKeepVersion(layer.id, "b")}
-                  className="px-2 py-0.5 text-[10px] rounded bg-[#c4f567]/10 text-[#c4f567]/70 hover:bg-[#c4f567]/20 hover:text-[#c4f567] transition-colors"
-                >
-                  Keep B
-                </button>
-              </div>
-            )}
-
-            {/* Version history — shown when versions exist and not in A/B mode */}
-            {hasVersions && !isComparing && !isLayerGenerating && (
+            {/* Version history */}
+            {hasVersions && !isLayerGenerating && (
               <div className="flex items-center gap-1 px-3 pb-1.5">
                 <button
                   onClick={() => onNavigateOlder(layer.id)}

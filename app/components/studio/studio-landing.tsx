@@ -1,13 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 import { DjHead } from "@/components/icons/dj-head";
 import type { ModelProvider } from "@/lib/layertune-types";
 
+const LOADING_MESSAGES = [
+  "Setting up your session",
+  "Analyzing your vibe",
+  "Planning the composition",
+  "Warming up the instruments",
+];
+
+function seededRandom(seed: number) {
+  const x = Math.sin(seed + 1) * 10000;
+  return x - Math.floor(x);
+}
+
 interface StudioLandingProps {
   onSubmit: (prompt: string) => void;
   isSubmitting: boolean;
+  pendingPrompt?: string;
   modelProvider: ModelProvider;
   onModelProviderChange: (provider: ModelProvider) => void;
   agentMode: boolean;
@@ -27,9 +40,23 @@ const QUICK_PROMPTS = [
   { label: "EDM drop", prompt: "edm, electronic, heavy bass drop, festival energy" },
 ];
 
-export function StudioLanding({ onSubmit, isSubmitting, modelProvider, onModelProviderChange, agentMode, onAgentModeChange, lyrics, onLyricsChange }: StudioLandingProps) {
-  const [input, setInput] = useState("");
+export function StudioLanding({ onSubmit, isSubmitting, pendingPrompt, modelProvider, onModelProviderChange, agentMode, onAgentModeChange, lyrics, onLyricsChange }: StudioLandingProps) {
+  const [input, setInput] = useState(pendingPrompt || "");
   const [lyricsPopupOpen, setLyricsPopupOpen] = useState(false);
+  const [msgIdx, setMsgIdx] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
+
+  // Cycle through loading messages
+  useEffect(() => {
+    if (!isSubmitting) {
+      setMsgIdx(0);
+      return;
+    }
+    intervalRef.current = setInterval(() => {
+      setMsgIdx((i) => (i + 1) % LOADING_MESSAGES.length);
+    }, 2500);
+    return () => clearInterval(intervalRef.current);
+  }, [isSubmitting]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,6 +69,68 @@ export function StudioLanding({ onSubmit, isSubmitting, modelProvider, onModelPr
     setInput(prompt);
   };
 
+  // --- Loading state: shown immediately after pressing enter ---
+  if (isSubmitting) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center px-6">
+        <div className="flex flex-col items-center max-w-sm w-full">
+          {/* DJ head with pulse ring */}
+          <div className="relative mb-8">
+            <div className="w-16 h-16 rounded-full bg-[#c4f567]/10 border border-[#c4f567]/30 flex items-center justify-center">
+              <DjHead className="w-8 h-8 text-[#c4f567]" />
+            </div>
+            <div className="absolute inset-0 w-16 h-16 rounded-full border border-[#c4f567]/20 animate-ping" />
+          </div>
+
+          {/* Waveform equalizer */}
+          <div className="flex items-center justify-center gap-[3px] h-12 mb-6" aria-hidden="true">
+            {Array.from({ length: 24 }).map((_, i) => (
+              <span
+                key={i}
+                className="inline-block w-[3px] rounded-full bg-[#c4f567]"
+                style={{
+                  animation: "waveBar 1.2s ease-in-out infinite",
+                  animationDelay: `${(i * 0.06) % 1.2}s`,
+                  opacity: 0.35 + seededRandom(i) * 0.45,
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Cycling status message */}
+          <p
+            key={msgIdx}
+            className="text-base font-medium text-white text-center animate-in fade-in duration-300"
+          >
+            {LOADING_MESSAGES[msgIdx]}...
+          </p>
+
+          {/* User's prompt */}
+          <div className="mt-4 px-5 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] w-full">
+            <p className="text-sm text-white/40 text-center leading-relaxed truncate">
+              &ldquo;{pendingPrompt || input}&rdquo;
+            </p>
+          </div>
+
+          {/* Subtle progress dots */}
+          <div className="mt-6 flex items-center gap-1.5">
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className="w-1.5 h-1.5 rounded-full bg-[#c4f567]/40"
+                style={{
+                  animation: "pulse 1.4s ease-in-out infinite",
+                  animationDelay: `${i * 0.2}s`,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Normal input state ---
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6">
       {/* Icon + Greeting */}
