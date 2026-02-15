@@ -6,6 +6,7 @@ import { Span } from "@/lib/lyrics-types";
 interface Props {
   text: string;
   spans: Span[];
+  ghostText?: string;
 }
 
 const SPAN_COLORS: Record<Span["type"], { bg: string; border: string }> = {
@@ -46,7 +47,7 @@ function buildSegments(text: string, spans: Span[]): Segment[] {
   return segments;
 }
 
-export function HighlightedLine({ text, spans }: Props) {
+export function HighlightedLine({ text, spans, ghostText }: Props) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const segments = buildSegments(text, spans);
 
@@ -76,6 +77,9 @@ export function HighlightedLine({ text, spans }: Props) {
           </span>
         );
       })}
+      {ghostText ? (
+        <span className="text-white/30">{ghostText}</span>
+      ) : null}
     </div>
   );
 }
