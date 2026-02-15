@@ -17,7 +17,7 @@ describe("POST /api/lyrics/analyze", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toContain("Invalid line at index 0");
+    expect(body.error).toContain("Missing or invalid 'doc.lines'");
   });
 
   it("returns annotations for valid docs", async () => {

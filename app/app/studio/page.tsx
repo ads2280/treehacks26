@@ -813,10 +813,16 @@ function StudioApp() {
   // Initialized from sessionStorage so it survives page navigations (e.g.
   // studio → video → back) and refreshes, but clears when the tab closes
   // so new tabs always show the landing page.
-  const [sessionStarted, setSessionStarted] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return sessionStorage.getItem("producething_session_active") === "true";
-  });
+  const [sessionStarted, setSessionStarted] = useState(false);
+
+  // Hydrate from sessionStorage after mount (avoids SSR mismatch)
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("producething_session_active") === "true") {
+        setSessionStarted(true);
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   // Persist session flag to sessionStorage whenever it becomes true
   useEffect(() => {

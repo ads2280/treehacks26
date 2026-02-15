@@ -41,7 +41,14 @@ function loadProject(): Project {
         );
       }
       project.layers = project.layers
-        .filter((l) => l.audioUrl || !l.generationStatus)
+        .filter((l) => {
+          // Keep layers that have audio content
+          if (l.audioUrl) return true;
+          // Keep layers that are actively generating (have a generationStatus)
+          if (l.generationStatus) return true;
+          // Remove ghost layers — no audio, no active generation
+          return false;
+        })
         .map((l) => {
           // Migrate: default versions/versionCursor for layers from before version history
           const withVersions = l.versions ? l : { ...l, versions: [] as LayerVersion[], versionCursor: 0 };
