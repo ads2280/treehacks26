@@ -1,5 +1,5 @@
-import { LyricDoc } from "@/lib/lyrics-types";
-import { isStructureTag } from "@/lib/lyrics-utils";
+import { LyricDoc } from "./lyrics-types";
+import { isStructureTag } from "./lyrics-utils";
 
 const FILLERS: string[] = [
   "basically",
@@ -23,6 +23,9 @@ const FILLERS: string[] = [
   "i mean",
 ];
 
+const FULL_LINE_HUM = /^[\s]*(([hm]+|la|da|na|do+|ba|sha|ooh?|ah)[\s]*)+$/i;
+const STUTTER_RE = /\b(\w+)((\s+\1){2,})\b/gi;
+
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -39,9 +42,15 @@ export function removeFiller(doc: LyricDoc): LyricDoc {
     if (isStructureTag(line.text)) return line;
 
     let text = line.text;
+    text = text.replace(STUTTER_RE, "$1");
+
     for (const filler of FILLERS) {
       const pattern = new RegExp(`\\b${escapeRegex(filler)}\\b\\s*`, "gi");
       text = text.replace(pattern, " ");
+    }
+
+    if (FULL_LINE_HUM.test(text)) {
+      text = "";
     }
 
     return {

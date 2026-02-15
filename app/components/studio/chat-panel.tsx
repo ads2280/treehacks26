@@ -8,7 +8,6 @@ import {
 } from "ai";
 import type { UIMessage } from "ai";
 import { Send, User, Loader2, ChevronRight } from "lucide-react";
-import ReactMarkdown from "react-markdown";
 import { DjHead } from "@/components/icons/dj-head";
 import { Button } from "@/components/ui/button";
 import { SMART_SUGGESTIONS, STEM_COLORS, ALL_STEM_TYPES, STEM_LABELS } from "@/lib/layertune-types";
@@ -412,13 +411,12 @@ export function ChatPanel({
         )}
       </div>
 
-      {/* Smart Suggestions — prioritize stems not yet added, allow duplicates */}
-      {hasLayers && !isDisabled && (
-        <StemSuggestions
-          project={project}
-          onAdd={handleSuggestionClick}
-        />
-      )}
+      {/* Smart Suggestions — always visible */}
+      <StemSuggestions
+        project={project}
+        onAdd={handleSuggestionClick}
+        disabled={isDisabled}
+      />
 
       {/* Input */}
       <div className="px-3 py-3 border-t border-white/10">
@@ -536,7 +534,15 @@ function UserBubble({ textContent }: { textContent: string }) {
   );
 }
 
-function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemType: StemType) => void }) {
+function StemSuggestions({
+  project,
+  onAdd,
+  disabled,
+}: {
+  project: Project;
+  onAdd: (stemType: StemType) => void;
+  disabled?: boolean;
+}) {
   const [showAll, setShowAll] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -575,11 +581,12 @@ function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemTyp
               key={s.stemType}
               type="button"
               onClick={() => onAdd(s.stemType)}
+              disabled={disabled}
               className={`px-2.5 py-1 text-xs rounded-full border transition-all ${
                 isCached
                   ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400/80 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/40"
                   : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white hover:border-white/20"
-              }`}
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
             >
               {s.label}
             </button>
@@ -588,11 +595,12 @@ function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemTyp
         <button
           type="button"
           onClick={() => setShowAll(!showAll)}
+          disabled={disabled}
           className={`px-2.5 py-1 text-xs rounded-full border transition-all ${
             showAll
               ? "bg-white/10 border-white/20 text-white/70"
               : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white/60"
-          }`}
+          } disabled:opacity-40 disabled:cursor-not-allowed`}
         >
           More...
         </button>
@@ -613,9 +621,10 @@ function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemTyp
                     onAdd(stemType);
                     setShowAll(false);
                   }}
+                  disabled={disabled}
                   className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors group ${
                     isCached ? "hover:bg-emerald-500/10" : "hover:bg-white/5"
-                  }`}
+                  } disabled:opacity-40 disabled:cursor-not-allowed`}
                 >
                   <div
                     className="w-2 h-2 rounded-full flex-shrink-0"
@@ -727,9 +736,7 @@ function AssistantMessage({ parts }: { parts: any[] }) {
           if (part.type === "text" && part.text.trim()) {
             return (
               <div key={i} className="bg-white/5 border border-white/10 rounded-lg px-3 py-2">
-                <div className="chat-markdown text-sm text-white/80">
-                  <ReactMarkdown>{part.text}</ReactMarkdown>
-                </div>
+                <p className="text-sm text-white/80 whitespace-pre-wrap">{part.text}</p>
               </div>
             );
           }
