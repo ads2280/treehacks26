@@ -152,7 +152,13 @@ function detectRepetition(doc: LyricDoc): {
     for (const token of tokens) {
       if (STOP_WORDS.has(token) || token.length <= 2) continue;
       unigramCounts.set(token, (unigramCounts.get(token) ?? 0) + 1);
+    }
 
+    const uniqueMeaningfulTokens = [...new Set(tokens)].filter(
+      (token) => !STOP_WORDS.has(token) && token.length > 2,
+    );
+
+    for (const token of uniqueMeaningfulTokens) {
       const pattern = new RegExp(`\\b${escapeRegex(token)}\\b`, "gi");
       let m: RegExpExecArray | null;
       while ((m = pattern.exec(line.text)) !== null) {
@@ -162,7 +168,6 @@ function detectRepetition(doc: LyricDoc): {
           start: m.index,
           end: m.index + m[0].length,
         });
-        break;
       }
     }
 

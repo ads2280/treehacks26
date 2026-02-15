@@ -45,4 +45,4 @@ export interface Suggestion {
   notes?: string[];
 }
 
-export type ProduceOperation = "tighten" | "punch" | "decliche";
+export type ProduceOperation = "tighten" | "punch" | "decliche" | "hookify";

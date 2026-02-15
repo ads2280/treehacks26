@@ -19,9 +19,29 @@ export function useLyricsAnalysis(
 
     if (timerRef.current) clearTimeout(timerRef.current);
 
-    timerRef.current = setTimeout(() => {
-      const result = analyzeWithSections(doc);
-      setAnnotations(result);
+    timerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/lyrics/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ doc }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`Analyze request failed (${res.status})`);
+        }
+
+        const data = (await res.json()) as { annotations?: Annotations };
+        if (!data.annotations) {
+          throw new Error("Analyze response missing annotations");
+        }
+
+        setAnnotations(data.annotations);
+      } catch (error) {
+        console.error("[useLyricsAnalysis] API analyze failed, using local fallback:", error);
+        const result = analyzeWithSections(doc);
+        setAnnotations(result);
+      }
     }, debounceMs);
 
     return () => {

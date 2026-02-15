@@ -6,10 +6,18 @@ import { Loader2 } from "lucide-react";
 interface Props {
   annotations: Annotations | null;
   onTighten: () => void;
+  onDecliche: () => void;
+  onHookify: () => void;
   isProducing: boolean;
 }
 
-export function AnalysisSummary({ annotations, onTighten, isProducing }: Props) {
+export function AnalysisSummary({
+  annotations,
+  onTighten,
+  onDecliche,
+  onHookify,
+  isProducing,
+}: Props) {
   if (!annotations) return null;
 
   const issueCount = annotations.spans.length;
@@ -53,6 +61,20 @@ export function AnalysisSummary({ annotations, onTighten, isProducing }: Props) 
         ) : (
           "Tighten"
         )}
+      </button>
+      <button
+        onClick={onDecliche}
+        disabled={isProducing}
+        className="px-2.5 py-0.5 text-[10px] rounded bg-amber-400/10 text-amber-300 border border-amber-400/20 hover:bg-amber-400/20 font-mono uppercase tracking-wider disabled:opacity-40 transition-colors"
+      >
+        Decliche
+      </button>
+      <button
+        onClick={onHookify}
+        disabled={isProducing}
+        className="px-2.5 py-0.5 text-[10px] rounded bg-blue-400/10 text-blue-300 border border-blue-400/20 hover:bg-blue-400/20 font-mono uppercase tracking-wider disabled:opacity-40 transition-colors"
+      >
+        Hookify
       </button>
     </div>
   );

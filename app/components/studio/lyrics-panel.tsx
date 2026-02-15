@@ -97,6 +97,13 @@ export function LyricsPanel({
               l.id === op.line_id ? { ...l, text: op.text } : l,
             ),
           };
+        } else if (op.type === "insert_line_after") {
+          const idx = updatedDoc.lines.findIndex((l) => l.id === op.line_id);
+          if (idx !== -1) {
+            const nextLines = [...updatedDoc.lines];
+            nextLines.splice(idx + 1, 0, op.new_line);
+            updatedDoc = { lines: nextLines };
+          }
         }
       }
 
@@ -175,6 +182,8 @@ export function LyricsPanel({
         <AnalysisSummary
           annotations={annotations}
           onTighten={() => handleProduce("tighten")}
+          onDecliche={() => handleProduce("decliche")}
+          onHookify={() => handleProduce("hookify")}
           isProducing={isProducing}
         />
       )}
@@ -200,11 +209,7 @@ export function LyricsPanel({
             onChange={(e) => onLyricsChange(e.target.value)}
             onScroll={handleScroll}
             placeholder={"[Verse]\nWrite your lyrics here...\n\n[Chorus]\n..."}
-            className={`w-full h-full border border-white/10 rounded-lg p-3 text-sm font-mono placeholder:text-white/20 focus:outline-none focus:border-[#c4f567]/50 resize-none transition-colors relative z-10 leading-[1.5em] ${
-              annotations && annotations.spans.length > 0
-                ? "bg-transparent text-transparent caret-[#c4f567] selection:bg-[#c4f567]/20"
-                : "bg-white/5 text-white/80"
-            }`}
+            className="w-full h-full border border-white/10 rounded-lg p-3 text-sm font-mono placeholder:text-white/20 focus:outline-none focus:border-[#c4f567]/50 resize-none transition-colors relative z-10 leading-[1.5em] bg-white/5 text-white/80 caret-[#c4f567] selection:bg-[#c4f567]/20"
             style={{ caretColor: "#c4f567" }}
           />
         </div>

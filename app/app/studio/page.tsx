@@ -189,12 +189,13 @@ function StudioApp() {
       setVibePrompt(prompt);
 
       try {
+        const hasLyrics = !!options?.lyrics?.trim();
         const data = await generate({
-          topic: prompt,
+          topic: hasLyrics ? undefined : prompt,
+          prompt: hasLyrics ? options?.lyrics : undefined,
           tags: options?.tags || `drums, beat, rhythm, ${prompt}`,
           make_instrumental: instrumental,
           negative_tags: options?.negative_tags,
-          prompt: options?.lyrics || undefined,
         });
 
         const clipIds = data.clips?.map((c) => c.id) || [];
@@ -331,8 +332,9 @@ function StudioApp() {
         if (!clipId) throw new Error("No clip returned");
 
         await pollUntilDone([clipId], {
-          acceptStreaming: false,
-          intervalMs: POLL_INTERVALS.clip,
+          // Layer add can use streaming-ready audio to reduce wait time.
+          acceptStreaming: true,
+          intervalMs: Math.min(POLL_INTERVALS.clip, 2500),
           timeoutMs: 180000,
         });
 
@@ -397,18 +399,19 @@ function StudioApp() {
         const lyricsPrompt = isVocalLayer && currentLyrics.trim() ? currentLyrics : undefined;
 
         const data = await generate({
-          topic: prompt,
+          topic: lyricsPrompt ? undefined : prompt,
+          prompt: lyricsPrompt,
           tags,
           cover_clip_id: p.originalClipId,
-          prompt: lyricsPrompt,
         });
 
         const clipId = data.clips?.[0]?.id;
         if (!clipId) throw new Error("No clip returned");
 
         await pollUntilDone([clipId], {
-          acceptStreaming: false,
-          intervalMs: POLL_INTERVALS.clip,
+          // Regeneration can use streaming-ready audio to reduce wait time.
+          acceptStreaming: true,
+          intervalMs: Math.min(POLL_INTERVALS.clip, 2500),
           timeoutMs: 180000,
         });
 
@@ -417,15 +420,22 @@ function StudioApp() {
         const stemIds = stemData.clips?.map((c) => c.id) || [];
         if (stemIds.length === 0) throw new Error("No stem clips returned");
 
-        const stemClips = await pollUntilDone(stemIds, {
-          acceptStreaming: false,
-          intervalMs: POLL_INTERVALS.stem,
+        // Fast path: for regeneration we only need this layer's stem, not all stems.
+        const targetStemIds = stemData.clips
+          ?.filter((clip) => stemTitleToType(clip.title) === layer.stemType)
+          .map((clip) => clip.id) || [];
+        const idsToPoll = targetStemIds.length > 0 ? targetStemIds : stemIds;
+
+        const stemClips = await pollUntilDone(idsToPoll, {
+          // For layer regen, streaming stem output is sufficient for immediate A/B.
+          acceptStreaming: true,
+          intervalMs: Math.min(POLL_INTERVALS.stem, 3000),
           timeoutMs: 300000,
         });
 
         const matchingStem = stemClips.find(
           (s) => stemTitleToType(s.title) === layer.stemType
-        );
+        ) || stemData.clips.find((s) => stemTitleToType(s.title) === layer.stemType);
 
         if (matchingStem?.audio_url) {
           updateLayer(layerId, {
@@ -489,10 +499,8 @@ function StudioApp() {
       (l) => l.stemType === "vocals" || l.stemType === "backing_vocals"
     );
     if (vocalLayer) {
-      addToast("Lyrics updated", "info", {
-        label: "Regenerate vocals?",
-        onClick: () => handleRegenerate(vocalLayer.id, vocalLayer.prompt || "vocals"),
-      });
+      addToast("Lyrics updated - regenerating vocals", "info");
+      void handleRegenerate(vocalLayer.id, vocalLayer.prompt || "vocals");
     } else {
       addToast("Lyrics saved for next generation", "success");
     }

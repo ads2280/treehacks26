@@ -10,12 +10,40 @@ interface LLMResponse {
   suggestions: LLMSuggestion[];
 }
 
+function parseJSONLenient(raw: string): unknown {
+  const trimmed = raw.trim();
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Continue with salvage attempts.
+  }
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced?.[1]) {
+    try {
+      return JSON.parse(fenced[1]);
+    } catch {
+      // Continue with salvage attempts.
+    }
+  }
+
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = trimmed.slice(firstBrace, lastBrace + 1);
+    return JSON.parse(candidate);
+  }
+
+  throw new Error("LLM response is not valid JSON");
+}
+
 export function parseLLMResponse(
   raw: string,
 ): { ok: true; data: LLMResponse } | { ok: false; error: string } {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = parseJSONLenient(raw);
   } catch {
     return { ok: false, error: "LLM response is not valid JSON" };
   }
