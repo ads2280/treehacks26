@@ -6,16 +6,37 @@ import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
+import type { UIMessage } from "ai";
 import { Send, User, Loader2 } from "lucide-react";
 import { DjHead } from "@/components/icons/dj-head";
 import { Button } from "@/components/ui/button";
 import { SMART_SUGGESTIONS, STEM_COLORS } from "@/lib/layertune-types";
 import type { StemType, Project } from "@/lib/layertune-types";
 
+const LAYER_CONTEXT_RE =
+  /^\[Editing (.+?) layer \(id: .+?, type: (.+?)\)\]: ([\s\S]+)$/;
+
+function getMessageText(msg: UIMessage): string {
+  return (msg.parts?.filter((p) => p.type === "text") || [])
+    .map((p) => p.text)
+    .join("");
+}
+
+function getInputPlaceholder(
+  targetLayer: { name: string } | null,
+  hasLayers: boolean
+): string {
+  if (targetLayer) return `What should change about ${targetLayer.name}?`;
+  if (hasLayers) return "Describe changes...";
+  return "Describe your music...";
+}
+
 interface ChatPanelProps {
   project: Project;
   isGenerating: boolean;
   hasLayers: boolean;
+  pendingMessage?: string | null;
+  onPendingMessageConsumed?: () => void;
   onGenerateTrack: (
     topic: string,
     tags: string,
@@ -32,6 +53,8 @@ export function ChatPanel({
   project,
   isGenerating,
   hasLayers,
+  pendingMessage,
+  onPendingMessageConsumed,
   onGenerateTrack,
   onAddLayer,
   onRegenerateLayer,
@@ -47,7 +70,11 @@ export function ChatPanel({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [input, setInput] = useState("");
-  const [targetLayer, setTargetLayer] = useState<{ id: string; name: string; stemType: StemType } | null>(null);
+  const [targetLayer, setTargetLayer] = useState<{
+    id: string;
+    name: string;
+    stemType: StemType;
+  } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const { messages, sendMessage, addToolOutput, error, regenerate, status } =
     useChat({
@@ -138,17 +165,24 @@ export function ChatPanel({
   const isSubmitted = status === "submitted";
   const isDisabled = isStreaming || isSubmitted || isGenerating;
 
-  // Show typing indicator only when waiting (no visible text yet)
-  const showTypingIndicator = (() => {
-    if (isSubmitted) return true;
-    if (!isStreaming) return false;
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg || lastMsg.role !== "assistant") return true;
-    const text = (lastMsg.parts?.filter((p) => p.type === "text") || [])
-      .map((p) => p.text)
-      .join("");
-    return !text;
-  })();
+  // Auto-send pending message from landing page
+  const pendingConsumedRef = useRef(false);
+  useEffect(() => {
+    if (!pendingMessage) {
+      pendingConsumedRef.current = false;
+      return;
+    }
+    if (!pendingConsumedRef.current && status === "ready") {
+      pendingConsumedRef.current = true;
+      sendMessage({ text: pendingMessage });
+      onPendingMessageConsumed?.();
+    }
+  }, [pendingMessage, status, sendMessage, onPendingMessageConsumed]);
+
+  // Show typing indicator when waiting for assistant text
+  const showTypingIndicator =
+    isSubmitted ||
+    (isStreaming && !getLastAssistantText(messages));
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -221,49 +255,24 @@ export function ChatPanel({
         )}
 
         {messages.map((msg) => {
-          const textParts = msg.parts?.filter((p) => p.type === "text") || [];
-          const textContent = textParts.map((p) => p.text).join("");
+          const textContent = getMessageText(msg);
+          if (!textContent) return null;
 
           if (msg.role === "user") {
-            if (!textContent) return null;
-            // Parse layer context prefix for chip display
-            const layerMatch = textContent.match(
-              /^\[Editing (.+?) layer \(id: .+?, type: (.+?)\)\]: ([\s\S]+)$/
-            );
-            const displayText = layerMatch ? layerMatch[3] : textContent;
-            const chipName = layerMatch ? layerMatch[1] : null;
-            const chipType = layerMatch ? (layerMatch[2] as StemType) : null;
             return (
-              <div key={msg.id} className="flex gap-2 justify-end">
-                <div className="max-w-[85%] bg-[#c4f567]/10 border border-[#c4f567]/20 rounded-lg px-3 py-2">
-                  {chipName && chipType && (
-                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/10 text-[10px] text-white/60 mb-1">
-                      <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: STEM_COLORS[chipType] }} />
-                      {chipName}
-                    </div>
-                  )}
-                  <p className="text-sm text-white/90">{displayText}</p>
-                </div>
-                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <User className="w-3 h-3 text-white/60" />
-                </div>
-              </div>
+              <UserBubble
+                key={msg.id}
+                textContent={textContent}
+              />
             );
           }
 
           if (msg.role === "assistant") {
-            if (!textContent) return null;
             return (
-              <div key={msg.id} className="flex gap-2">
-                <div className="w-6 h-6 rounded-full bg-[#c4f567]/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <DjHead className="w-3 h-3 text-[#c4f567]" />
-                </div>
-                <div className="max-w-[85%] bg-white/5 border border-white/10 rounded-lg px-3 py-2">
-                  <p className="text-sm text-white/80 whitespace-pre-wrap">
-                    {textContent}
-                  </p>
-                </div>
-              </div>
+              <AssistantBubble
+                key={msg.id}
+                textContent={textContent}
+              />
             );
           }
 
@@ -349,13 +358,7 @@ export function ChatPanel({
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={
-              targetLayer
-                ? `What should change about ${targetLayer.name}?`
-                : hasLayers
-                  ? "Describe changes..."
-                  : "Describe your music..."
-            }
+            placeholder={getInputPlaceholder(targetLayer, hasLayers)}
             disabled={isDisabled}
             className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#c4f567]/50 disabled:opacity-50 transition-colors"
           />
@@ -369,6 +372,56 @@ export function ChatPanel({
           </Button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// -- Sub-components for message bubbles --
+
+function getLastAssistantText(messages: UIMessage[]): string {
+  const lastMsg = messages[messages.length - 1];
+  if (!lastMsg || lastMsg.role !== "assistant") return "";
+  return getMessageText(lastMsg);
+}
+
+function UserBubble({ textContent }: { textContent: string }) {
+  const layerMatch = textContent.match(LAYER_CONTEXT_RE);
+  const displayText = layerMatch ? layerMatch[3] : textContent;
+  const chipName = layerMatch ? layerMatch[1] : null;
+  const chipType = layerMatch ? (layerMatch[2] as StemType) : null;
+
+  return (
+    <div className="flex gap-2 justify-end">
+      <div className="max-w-[85%] bg-[#c4f567]/10 border border-[#c4f567]/20 rounded-lg px-3 py-2">
+        {chipName && chipType && (
+          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/10 text-[10px] text-white/60 mb-1">
+            <div
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ backgroundColor: STEM_COLORS[chipType] }}
+            />
+            {chipName}
+          </div>
+        )}
+        <p className="text-sm text-white/90">{displayText}</p>
+      </div>
+      <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <User className="w-3 h-3 text-white/60" />
+      </div>
+    </div>
+  );
+}
+
+function AssistantBubble({ textContent }: { textContent: string }) {
+  return (
+    <div className="flex gap-2">
+      <div className="w-6 h-6 rounded-full bg-[#c4f567]/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <DjHead className="w-3 h-3 text-[#c4f567]" />
+      </div>
+      <div className="max-w-[85%] bg-white/5 border border-white/10 rounded-lg px-3 py-2">
+        <p className="text-sm text-white/80 whitespace-pre-wrap">
+          {textContent}
+        </p>
+      </div>
     </div>
   );
 }

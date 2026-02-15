@@ -17,6 +17,10 @@ import { generate, stem, pollUntilDone, proxyAudioUrl, stemTitleToType } from "@
 import { STEM_TYPE_TAGS, POLL_INTERVALS, STEM_LABELS } from "@/lib/layertune-types";
 import type { GenerationPhase, StemType, CachedStem } from "@/lib/layertune-types";
 
+function stemTypeDisplayName(stemType: StemType): string {
+  return stemType.charAt(0).toUpperCase() + stemType.slice(1).replace("_", " ");
+}
+
 const ChatPanel = dynamic(
   () => import("@/components/studio/chat-panel").then((m) => m.ChatPanel),
   { ssr: false }
@@ -40,7 +44,6 @@ function StudioApp() {
     setABState,
     startABComparison,
     setStemCache,
-    consumeCachedStem,
   } = useProject();
 
   const { addToast } = useToasts();
@@ -126,65 +129,37 @@ function StudioApp() {
     [project.layers, updateLayer, abSelectedVersions]
   );
 
-  const handleKeepA = useCallback(
-    (layerId: string) => {
-      const currentVersion = abSelectedVersions[layerId] || "b";
-      if (currentVersion === "b") {
-        const layer = project.layers.find((l) => l.id === layerId);
-        if (layer?.previousAudioUrl) {
-          updateLayer(layerId, {
-            audioUrl: layer.previousAudioUrl,
-            previousAudioUrl: null,
-          });
-        }
-      } else {
-        updateLayer(layerId, { previousAudioUrl: null });
-      }
-      setAbSelectedVersions((prev) => {
-        const next = { ...prev };
-        delete next[layerId];
-        return next;
-      });
-      setABState(layerId, "none");
-      addToast("Reverted to original version", "info");
-    },
-    [abSelectedVersions, project.layers, updateLayer, setABState, addToast]
-  );
-
-  const handleKeepB = useCallback(
-    (layerId: string) => {
-      const currentVersion = abSelectedVersions[layerId] || "b";
-      if (currentVersion === "a") {
-        const layer = project.layers.find((l) => l.id === layerId);
-        if (layer?.previousAudioUrl) {
-          updateLayer(layerId, {
-            audioUrl: layer.previousAudioUrl,
-            previousAudioUrl: null,
-          });
-        }
-      } else {
-        updateLayer(layerId, { previousAudioUrl: null });
-      }
-      setAbSelectedVersions((prev) => {
-        const next = { ...prev };
-        delete next[layerId];
-        return next;
-      });
-      setABState(layerId, "none");
-      addToast("New version kept!", "success");
-    },
-    [abSelectedVersions, project.layers, updateLayer, setABState, addToast]
-  );
-
   const handleKeepVersion = useCallback(
     (layerId: string, version: "a" | "b") => {
-      if (version === "a") {
-        handleKeepA(layerId);
+      const currentlyShowing = abSelectedVersions[layerId] || "b";
+
+      // If the displayed version differs from the one to keep, swap audio URLs
+      if (currentlyShowing !== version) {
+        const layer = project.layers.find((l) => l.id === layerId);
+        if (layer?.previousAudioUrl) {
+          updateLayer(layerId, {
+            audioUrl: layer.previousAudioUrl,
+            previousAudioUrl: null,
+          });
+        }
       } else {
-        handleKeepB(layerId);
+        updateLayer(layerId, { previousAudioUrl: null });
+      }
+
+      setAbSelectedVersions((prev) => {
+        const next = { ...prev };
+        delete next[layerId];
+        return next;
+      });
+      setABState(layerId, "none");
+
+      if (version === "a") {
+        addToast("Reverted to original version", "info");
+      } else {
+        addToast("New version kept!", "success");
       }
     },
-    [handleKeepA, handleKeepB]
+    [abSelectedVersions, project.layers, updateLayer, setABState, addToast]
   );
 
   const handleGenerate = useCallback(
@@ -286,14 +261,12 @@ function StudioApp() {
         return;
       }
 
-      // Try cache first for instant layer add
-      const cached = consumeCachedStem(targetStemType);
-      if (cached && cached.audioUrl) {
-        const displayName =
-          targetStemType.charAt(0).toUpperCase() +
-          targetStemType.slice(1).replace("_", " ");
+      // Try cache first for instant layer add (read state directly — see Bug #6)
+      const cached = project.stemCache.find((s) => s.stemType === targetStemType);
+      if (cached?.audioUrl) {
+        setStemCache(project.stemCache.filter((s) => s !== cached));
         addLayer({
-          name: displayName,
+          name: stemTypeDisplayName(targetStemType),
           stemType: targetStemType,
           prompt: tags,
           audioUrl: cached.audioUrl,
@@ -311,11 +284,8 @@ function StudioApp() {
       }
 
       // Not cached -- create placeholder layer with per-layer generation status
-      const displayName =
-        targetStemType.charAt(0).toUpperCase() +
-        targetStemType.slice(1).replace("_", " ");
       const placeholderId = addLayer({
-        name: displayName,
+        name: stemTypeDisplayName(targetStemType),
         stemType: targetStemType,
         prompt: tags,
         audioUrl: null,
@@ -383,7 +353,7 @@ function StudioApp() {
         );
       }
     },
-    [project.originalClipId, project.id, addLayer, updateLayer, consumeCachedStem, addToast]
+    [project.originalClipId, project.id, project.stemCache, addLayer, updateLayer, setStemCache, addToast]
   );
 
   const handleRegenerate = useCallback(
@@ -532,20 +502,19 @@ function StudioApp() {
     [handleGenerate, lyrics]
   );
 
-  const handleLandingSubmit = useCallback(
-    (prompt: string) => {
-      handleGenerate(prompt, false, {
-        tags: `drums, beat, rhythm, ${prompt}`,
-      });
-    },
-    [handleGenerate]
-  );
+  // Landing → Chat flow: store prompt, let ChatPanel send it to the AI agent
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
 
-  // Show landing when no project content and not generating
+  const handleLandingSubmit = useCallback((prompt: string) => {
+    setPendingMessage(prompt);
+  }, []);
+
+  // Show landing when no project content, not generating, and no pending message
   const showLanding =
     layers.length === 0 &&
     !project.originalClipId &&
-    generationPhase === "idle";
+    generationPhase === "idle" &&
+    !pendingMessage;
 
   return (
     <div className="h-screen flex flex-col bg-[#0d0d0d] text-white overflow-hidden">
@@ -572,6 +541,8 @@ function StudioApp() {
           project={project}
           isGenerating={isInitialGenerating}
           hasLayers={layers.length > 0}
+          pendingMessage={pendingMessage}
+          onPendingMessageConsumed={() => setPendingMessage(null)}
           onGenerateTrack={handleChatGenerate}
           onAddLayer={handleAddLayer}
           onRegenerateLayer={handleRegenerate}

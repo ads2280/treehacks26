@@ -9,8 +9,22 @@ import {
   Loader2,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import type { Layer, ABState } from "@/lib/layertune-types";
+import type { Layer, ABState, LayerGenerationStatus } from "@/lib/layertune-types";
 import { STEM_COLORS, STEM_LABELS } from "@/lib/layertune-types";
+
+const PHASE_LABELS: Record<LayerGenerationStatus, string> = {
+  generating: "gen",
+  separating: "stem",
+  loading: "load",
+  error: "err",
+};
+
+function layerButtonClass(isDisabled: boolean, activeClass?: string): string {
+  const base = "p-1 rounded transition-colors";
+  if (isDisabled) return `${base} opacity-30 cursor-not-allowed`;
+  if (activeClass) return `${base} ${activeClass}`;
+  return `${base} text-white/40 hover:text-white/70`;
+}
 
 interface LayerSidebarProps {
   layers: Layer[];
@@ -44,12 +58,7 @@ export function LayerSidebar({
         const isA = ab === "a_selected";
         const genStatus = layer.generationStatus;
         const isLayerGenerating = !!genStatus && genStatus !== "error";
-
-        const phaseLabel =
-          genStatus === "generating" ? "gen" :
-          genStatus === "separating" ? "stem" :
-          genStatus === "loading" ? "load" :
-          genStatus === "error" ? "err" : null;
+        const phaseLabel = genStatus ? PHASE_LABELS[genStatus] : null;
 
         return (
           <div
@@ -94,12 +103,10 @@ export function LayerSidebar({
               <button
                 onClick={() => onToggleMute(layer.id)}
                 disabled={isLayerGenerating}
-                className={`p-1 rounded transition-colors ${
-                  isLayerGenerating ? "opacity-30 cursor-not-allowed" :
-                  layer.isMuted
-                    ? "bg-red-500/20 text-red-400"
-                    : "text-white/40 hover:text-white/70"
-                }`}
+                className={layerButtonClass(
+                  isLayerGenerating,
+                  layer.isMuted ? "bg-red-500/20 text-red-400" : undefined
+                )}
                 title={layer.isMuted ? "Unmute" : "Mute"}
               >
                 {layer.isMuted ? (
@@ -112,12 +119,10 @@ export function LayerSidebar({
               <button
                 onClick={() => onToggleSolo(layer.id)}
                 disabled={isLayerGenerating}
-                className={`p-1 rounded transition-colors ${
-                  isLayerGenerating ? "opacity-30 cursor-not-allowed" :
-                  layer.isSoloed
-                    ? "bg-yellow-500/20 text-yellow-400"
-                    : "text-white/40 hover:text-white/70"
-                }`}
+                className={layerButtonClass(
+                  isLayerGenerating,
+                  layer.isSoloed ? "bg-yellow-500/20 text-yellow-400" : undefined
+                )}
                 title={layer.isSoloed ? "Unsolo" : "Solo"}
               >
                 <Headphones className="w-3.5 h-3.5" />
@@ -126,10 +131,7 @@ export function LayerSidebar({
               <button
                 onClick={() => onRegenerate(layer.id)}
                 disabled={isLayerGenerating}
-                className={`p-1 rounded transition-colors ${
-                  isLayerGenerating ? "opacity-30 cursor-not-allowed" :
-                  "text-white/40 hover:text-white/70"
-                }`}
+                className={layerButtonClass(isLayerGenerating)}
                 title="Regenerate"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
