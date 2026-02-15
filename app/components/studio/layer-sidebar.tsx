@@ -6,6 +6,7 @@ import {
   Headphones,
   RefreshCw,
   Trash2,
+  Loader2,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import type { Layer, ABState } from "@/lib/layertune-types";
@@ -41,28 +42,60 @@ export function LayerSidebar({
         const ab = abState[layer.id] || "none";
         const isComparing = ab === "comparing" || ab === "a_selected" || ab === "b_selected";
         const isA = ab === "a_selected";
+        const genStatus = layer.generationStatus;
+        const isLayerGenerating = !!genStatus && genStatus !== "error";
+
+        const phaseLabel =
+          genStatus === "generating" ? "gen" :
+          genStatus === "separating" ? "stem" :
+          genStatus === "loading" ? "load" :
+          genStatus === "error" ? "err" : null;
 
         return (
           <div
             key={layer.id}
-            className="border-b border-white/5 transition-colors"
-            style={{ height: isComparing ? 110 : 80 }}
+            draggable={!isLayerGenerating}
+            onDragStart={(e) => {
+              e.dataTransfer.setData(
+                "application/layertune-layer",
+                JSON.stringify({
+                  id: layer.id,
+                  name: STEM_LABELS[layer.stemType],
+                  stemType: layer.stemType,
+                })
+              );
+              e.dataTransfer.effectAllowed = "copy";
+            }}
+            className={`border-b border-white/5 transition-colors ${isLayerGenerating ? "opacity-70" : "cursor-grab active:cursor-grabbing"}`}
+            style={{ height: isComparing && !isLayerGenerating ? 110 : 80 }}
           >
             {/* Main controls */}
             <div className="flex items-center gap-2 px-3 py-2 h-[50px]">
-              {/* Color dot */}
-              <div
-                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: color }}
-              />
-              {/* Name */}
+              {/* Color dot or spinner */}
+              {isLayerGenerating ? (
+                <Loader2
+                  className="w-3 h-3 flex-shrink-0 animate-spin"
+                  style={{ color }}
+                />
+              ) : (
+                <div
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: genStatus === "error" ? "#ef4444" : color }}
+                />
+              )}
+              {/* Name + phase label */}
               <span className="text-xs text-white/80 truncate flex-1" title={layer.name}>
                 {STEM_LABELS[layer.stemType]}
+                {phaseLabel && (
+                  <span className="ml-1 text-[10px] text-white/40">({phaseLabel})</span>
+                )}
               </span>
               {/* Mute */}
               <button
                 onClick={() => onToggleMute(layer.id)}
+                disabled={isLayerGenerating}
                 className={`p-1 rounded transition-colors ${
+                  isLayerGenerating ? "opacity-30 cursor-not-allowed" :
                   layer.isMuted
                     ? "bg-red-500/20 text-red-400"
                     : "text-white/40 hover:text-white/70"
@@ -78,7 +111,9 @@ export function LayerSidebar({
               {/* Solo */}
               <button
                 onClick={() => onToggleSolo(layer.id)}
+                disabled={isLayerGenerating}
                 className={`p-1 rounded transition-colors ${
+                  isLayerGenerating ? "opacity-30 cursor-not-allowed" :
                   layer.isSoloed
                     ? "bg-yellow-500/20 text-yellow-400"
                     : "text-white/40 hover:text-white/70"
@@ -90,7 +125,11 @@ export function LayerSidebar({
               {/* Regenerate */}
               <button
                 onClick={() => onRegenerate(layer.id)}
-                className="p-1 rounded text-white/40 hover:text-white/70 transition-colors"
+                disabled={isLayerGenerating}
+                className={`p-1 rounded transition-colors ${
+                  isLayerGenerating ? "opacity-30 cursor-not-allowed" :
+                  "text-white/40 hover:text-white/70"
+                }`}
                 title="Regenerate"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -112,8 +151,9 @@ export function LayerSidebar({
                 min={0}
                 max={100}
                 step={1}
+                disabled={isLayerGenerating}
                 onValueChange={([v]) => onVolumeChange(layer.id, v / 100)}
-                className="w-full [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:bg-white/10 [&_[data-slot=slider-range]]:bg-white/30 [&_[data-slot=slider-thumb]]:h-2.5 [&_[data-slot=slider-thumb]]:w-2.5 [&_[data-slot=slider-thumb]]:border-0"
+                className={`w-full [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:bg-white/10 [&_[data-slot=slider-range]]:bg-white/30 [&_[data-slot=slider-thumb]]:h-2.5 [&_[data-slot=slider-thumb]]:w-2.5 [&_[data-slot=slider-thumb]]:border-0 ${isLayerGenerating ? "opacity-30" : ""}`}
                 style={
                   {
                     "--slider-color": color,
@@ -122,8 +162,8 @@ export function LayerSidebar({
               />
             </div>
 
-            {/* A/B Comparison panel */}
-            {isComparing && (
+            {/* A/B Comparison panel — hidden while generating */}
+            {isComparing && !isLayerGenerating && (
               <div className="flex items-center gap-1 px-3 pb-1.5">
                 <button
                   onClick={() => onSelectAB(layer.id, "a")}

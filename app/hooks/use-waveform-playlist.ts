@@ -105,7 +105,7 @@ export function useWaveformPlaylist({
           container: containerRef.current,
           samplesPerPixel: sppForZoom(zoomLevel),
           mono: true,
-          waveHeight: 55,
+          waveHeight: 80,
           isAutomaticScroll: true,
           timescale: true,
           state: "cursor",

@@ -6,9 +6,10 @@ import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
-import { Send, Bot, User, Loader2 } from "lucide-react";
+import { Send, User, Loader2 } from "lucide-react";
+import { DjHead } from "@/components/icons/dj-head";
 import { Button } from "@/components/ui/button";
-import { SMART_SUGGESTIONS } from "@/lib/layertune-types";
+import { SMART_SUGGESTIONS, STEM_COLORS } from "@/lib/layertune-types";
 import type { StemType, Project } from "@/lib/layertune-types";
 
 interface ChatPanelProps {
@@ -43,8 +44,11 @@ export function ChatPanel({
   });
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const [input, setInput] = useState("");
+  const [targetLayer, setTargetLayer] = useState<{ id: string; name: string; stemType: StemType } | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
   const { messages, sendMessage, addToolOutput, error, regenerate, status } =
     useChat({
       transport: new DefaultChatTransport({ api: "/api/chat" }),
@@ -124,6 +128,7 @@ export function ChatPanel({
         // Explicitly provide tool result via addToolOutput (AI SDK v6 pattern)
         addToolOutput({
           toolCallId: toolCall.toolCallId,
+          tool: toolCall.toolName,
           output,
         });
       },
@@ -154,7 +159,14 @@ export function ChatPanel({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isDisabled) return;
-    sendMessage({ text: input });
+
+    let text = input;
+    if (targetLayer) {
+      text = `[Editing ${targetLayer.name} layer (id: ${targetLayer.id}, type: ${targetLayer.stemType})]: ${input}`;
+      setTargetLayer(null);
+    }
+
+    sendMessage({ text });
     setInput("");
   };
 
@@ -165,7 +177,30 @@ export function ChatPanel({
   };
 
   return (
-    <div className="w-80 flex flex-col bg-[#0a0a0a] border-r border-white/10">
+    <div
+      className={`w-80 flex flex-col bg-[#0a0a0a] border-r border-white/10 ${isDragOver ? "ring-2 ring-[#c4f567]/50 ring-inset" : ""}`}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("application/layertune-layer")) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+          setIsDragOver(true);
+        }
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setIsDragOver(false);
+        }
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        const raw = e.dataTransfer.getData("application/layertune-layer");
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        setTargetLayer(data);
+        inputRef.current?.focus();
+      }}
+    >
       {/* Messages */}
       <div
         ref={scrollRef}
@@ -174,7 +209,7 @@ export function ChatPanel({
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <div className="w-12 h-12 rounded-full bg-[#c4f567]/10 flex items-center justify-center mb-3">
-              <Bot className="w-6 h-6 text-[#c4f567]" />
+              <DjHead className="w-6 h-6 text-[#c4f567]" />
             </div>
             <p className="text-sm text-white/60 mb-1">
               What kind of music do you want to make?
@@ -191,10 +226,23 @@ export function ChatPanel({
 
           if (msg.role === "user") {
             if (!textContent) return null;
+            // Parse layer context prefix for chip display
+            const layerMatch = textContent.match(
+              /^\[Editing (.+?) layer \(id: .+?, type: (.+?)\)\]: ([\s\S]+)$/
+            );
+            const displayText = layerMatch ? layerMatch[3] : textContent;
+            const chipName = layerMatch ? layerMatch[1] : null;
+            const chipType = layerMatch ? (layerMatch[2] as StemType) : null;
             return (
               <div key={msg.id} className="flex gap-2 justify-end">
                 <div className="max-w-[85%] bg-[#c4f567]/10 border border-[#c4f567]/20 rounded-lg px-3 py-2">
-                  <p className="text-sm text-white/90">{textContent}</p>
+                  {chipName && chipType && (
+                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/10 text-[10px] text-white/60 mb-1">
+                      <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: STEM_COLORS[chipType] }} />
+                      {chipName}
+                    </div>
+                  )}
+                  <p className="text-sm text-white/90">{displayText}</p>
                 </div>
                 <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
                   <User className="w-3 h-3 text-white/60" />
@@ -208,7 +256,7 @@ export function ChatPanel({
             return (
               <div key={msg.id} className="flex gap-2">
                 <div className="w-6 h-6 rounded-full bg-[#c4f567]/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <Bot className="w-3 h-3 text-[#c4f567]" />
+                  <DjHead className="w-3 h-3 text-[#c4f567]" />
                 </div>
                 <div className="max-w-[85%] bg-white/5 border border-white/10 rounded-lg px-3 py-2">
                   <p className="text-sm text-white/80 whitespace-pre-wrap">
@@ -225,7 +273,7 @@ export function ChatPanel({
         {showTypingIndicator && (
           <div className="flex gap-2">
             <div className="w-6 h-6 rounded-full bg-[#c4f567]/20 flex items-center justify-center flex-shrink-0">
-              <Bot className="w-3 h-3 text-[#c4f567]" />
+              <DjHead className="w-3 h-3 text-[#c4f567]" />
             </div>
             <div className="bg-white/5 border border-white/10 rounded-lg px-3 py-2">
               <Loader2 className="w-4 h-4 animate-spin text-white/40" />
@@ -236,7 +284,7 @@ export function ChatPanel({
         {error && (
           <div className="flex gap-2">
             <div className="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-              <Bot className="w-3 h-3 text-red-400" />
+              <DjHead className="w-3 h-3 text-red-400" />
             </div>
             <div className="max-w-[85%]">
               <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
@@ -277,13 +325,36 @@ export function ChatPanel({
         onSubmit={handleSubmit}
         className="px-3 py-3 border-t border-white/10"
       >
+        {targetLayer && (
+          <div className="pb-2">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 border border-white/20 text-xs">
+              <div
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ backgroundColor: STEM_COLORS[targetLayer.stemType] }}
+              />
+              <span className="text-white/80">Editing {targetLayer.name}</span>
+              <button
+                type="button"
+                onClick={() => setTargetLayer(null)}
+                className="text-white/40 hover:text-white ml-0.5 leading-none"
+              >
+                &times;
+              </button>
+            </div>
+          </div>
+        )}
         <div className="flex gap-2">
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
-              hasLayers ? "Describe changes..." : "Describe your music..."
+              targetLayer
+                ? `What should change about ${targetLayer.name}?`
+                : hasLayers
+                  ? "Describe changes..."
+                  : "Describe your music..."
             }
             disabled={isDisabled}
             className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#c4f567]/50 disabled:opacity-50 transition-colors"

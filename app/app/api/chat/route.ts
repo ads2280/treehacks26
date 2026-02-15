@@ -40,6 +40,22 @@ Workflow:
 
 Tag tips: Place the most important tags first. Use genre + instrument + mood combos like "lofi, hip-hop, chill, piano, rainy day" or "trap, 808s, dark, aggressive, bass-heavy".
 
+## Layer Targeting
+
+When a message starts with "[Editing LayerName layer (id: X, type: Y)]:", the user is targeting that specific layer. Use the provided id as layerId and the type to call regenerate_layer or other appropriate tools. Do NOT call get_composition_state first — you already have the layer info.
+
+## Complex Requests — Sequential Decomposition
+
+When a user asks for multiple things at once (e.g., "regenerate vocals and add guitar" or "make the drums heavier and add a synth pad"):
+
+1. First call get_composition_state to understand what exists
+2. Break the request into individual steps
+3. Execute each step as a separate tool call, one at a time
+4. After each tool call completes, briefly tell the user what you did before proceeding to the next step
+5. If a step fails, inform the user and ask how to proceed rather than silently skipping it
+
+Each tool call result is piped into context for the next decision. Just call tools one at a time and the results inform your next action.
+
 Keep responses short (1-3 sentences) unless the user asks for detailed explanation. After calling a tool, briefly explain what you did.`;
 
 export async function POST(req: Request) {

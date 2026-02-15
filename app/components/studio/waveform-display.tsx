@@ -13,7 +13,7 @@ export function WaveformDisplay({
   playlistContainerRef,
 }: WaveformDisplayProps) {
   return (
-    <div className="flex-1 overflow-x-auto overflow-y-auto relative cursor-crosshair studio-scroll">
+    <div className="flex-1 overflow-x-auto overflow-y-auto relative cursor-crosshair studio-scroll waveform-grid">
       <div className="relative" style={{ minWidth: "100%" }}>
         {layers.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center z-20">

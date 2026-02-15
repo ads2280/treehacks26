@@ -14,6 +14,8 @@ export type StemType =
 
 export type ABState = "none" | "comparing" | "a_selected" | "b_selected";
 
+export type LayerGenerationStatus = "generating" | "separating" | "loading" | "error";
+
 export type GenerationPhase =
   | "idle"
   | "generating"
@@ -36,6 +38,7 @@ export interface Layer {
   position: number;
   sunoClipId: string | null;
   generationJobId: string | null;
+  generationStatus?: LayerGenerationStatus;
   createdAt: string;
 }
 

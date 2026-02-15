@@ -30,6 +30,7 @@ function makeLayer(overrides?: Partial<{ stemType: StemType; name: string }>) {
     position: 0,
     sunoClipId: null,
     generationJobId: null,
+    projectId: 'test-project',
   };
 }
 

@@ -12,6 +12,7 @@ import { WaveformDisplay } from "@/components/studio/waveform-display";
 import { TransportBar } from "@/components/studio/transport-bar";
 import { RegenerateModal, DeleteDialog } from "@/components/studio/modals";
 import { GenerationOverlay } from "@/components/studio/generation-overlay";
+import { StudioLanding } from "@/components/studio/studio-landing";
 import { generate, stem, pollUntilDone, proxyAudioUrl, stemTitleToType } from "@/lib/api";
 import { STEM_TYPE_TAGS, POLL_INTERVALS, STEM_LABELS } from "@/lib/layertune-types";
 import type { GenerationPhase, StemType, CachedStem } from "@/lib/layertune-types";
@@ -45,7 +46,7 @@ function StudioApp() {
   const { addToast } = useToasts();
 
   const [generationPhase, setGenerationPhase] = useState<GenerationPhase>("idle");
-  const [isGenerating, setIsGenerating] = useState(false);
+  const isInitialGenerating = generationPhase !== "idle";
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -192,7 +193,6 @@ function StudioApp() {
       instrumental: boolean,
       options?: { tags?: string; negative_tags?: string; lyrics?: string }
     ) => {
-      setIsGenerating(true);
       setGenerationPhase("generating");
       setVibePrompt(prompt);
 
@@ -274,8 +274,6 @@ function StudioApp() {
           "error"
         );
         setTimeout(() => setGenerationPhase("idle"), 3000);
-      } finally {
-        setIsGenerating(false);
       }
     },
     [addLayer, setVibePrompt, setOriginalClipId, setStemCache, addToast, project.id]
@@ -312,9 +310,25 @@ function StudioApp() {
         return;
       }
 
-      // Not cached -- full generate + stem pipeline
-      setIsGenerating(true);
-      setGenerationPhase("generating");
+      // Not cached -- create placeholder layer with per-layer generation status
+      const displayName =
+        targetStemType.charAt(0).toUpperCase() +
+        targetStemType.slice(1).replace("_", " ");
+      const placeholderId = addLayer({
+        name: displayName,
+        stemType: targetStemType,
+        prompt: tags,
+        audioUrl: null,
+        previousAudioUrl: null,
+        volume: 0.8,
+        isMuted: false,
+        isSoloed: false,
+        position: 0,
+        sunoClipId: null,
+        generationJobId: null,
+        projectId: project.id,
+        generationStatus: "generating",
+      });
 
       try {
         const data = await generate({
@@ -332,7 +346,7 @@ function StudioApp() {
           timeoutMs: 180000,
         });
 
-        setGenerationPhase("separating");
+        updateLayer(placeholderId, { generationStatus: "separating" });
         const stemData = await stem(clipId);
         const stemIds = stemData.clips?.map((c) => c.id) || [];
         if (stemIds.length === 0) throw new Error("No stem clips returned");
@@ -343,25 +357,17 @@ function StudioApp() {
           timeoutMs: 300000,
         });
 
-        setGenerationPhase("loading");
+        updateLayer(placeholderId, { generationStatus: "loading" });
         const matchingStem = stemClips.find(
           (s) => stemTitleToType(s.title) === targetStemType
         );
 
         if (matchingStem?.audio_url) {
-          addLayer({
+          updateLayer(placeholderId, {
             name: matchingStem.title,
-            stemType: targetStemType,
-            prompt: tags,
             audioUrl: proxyAudioUrl(matchingStem.audio_url),
-            previousAudioUrl: null,
-            volume: 0.8,
-            isMuted: false,
-            isSoloed: false,
-            position: 0,
             sunoClipId: matchingStem.id,
-            generationJobId: null,
-            projectId: project.id,
+            generationStatus: undefined,
           });
           addToast(`${matchingStem.title} layer added!`, "success");
         } else {
@@ -369,21 +375,15 @@ function StudioApp() {
             `No ${targetStemType} stem found in generated track`
           );
         }
-
-        setGenerationPhase("complete");
-        setTimeout(() => setGenerationPhase("idle"), 2000);
       } catch (error) {
-        setGenerationPhase("error");
+        updateLayer(placeholderId, { generationStatus: "error" });
         addToast(
           error instanceof Error ? error.message : "Add layer failed",
           "error"
         );
-        setTimeout(() => setGenerationPhase("idle"), 3000);
-      } finally {
-        setIsGenerating(false);
       }
     },
-    [project.originalClipId, project.id, addLayer, consumeCachedStem, addToast]
+    [project.originalClipId, project.id, addLayer, updateLayer, consumeCachedStem, addToast]
   );
 
   const handleRegenerate = useCallback(
@@ -391,12 +391,9 @@ function StudioApp() {
       const layer = project.layers.find((l) => l.id === layerId);
       if (!layer || !project.originalClipId) return;
 
-      updateLayer(layerId, { previousAudioUrl: layer.audioUrl });
+      updateLayer(layerId, { previousAudioUrl: layer.audioUrl, generationStatus: "generating" });
       startABComparison(layerId);
       setAbSelectedVersions((prev) => ({ ...prev, [layerId]: "b" }));
-
-      setIsGenerating(true);
-      setGenerationPhase("generating");
 
       try {
         const stemTypeTag =
@@ -423,7 +420,7 @@ function StudioApp() {
           timeoutMs: 180000,
         });
 
-        setGenerationPhase("separating");
+        updateLayer(layerId, { generationStatus: "separating" });
         const stemData = await stem(clipId);
         const stemIds = stemData.clips?.map((c) => c.id) || [];
         if (stemIds.length === 0) throw new Error("No stem clips returned");
@@ -443,6 +440,7 @@ function StudioApp() {
             audioUrl: proxyAudioUrl(matchingStem.audio_url),
             prompt,
             sunoClipId: matchingStem.id,
+            generationStatus: undefined,
           });
           addToast(
             `${STEM_LABELS[layer.stemType]} regenerated! Compare A/B versions.`,
@@ -451,21 +449,17 @@ function StudioApp() {
         } else {
           throw new Error("Matching stem not found");
         }
-
-        setGenerationPhase("complete");
-        setTimeout(() => setGenerationPhase("idle"), 2000);
       } catch (error) {
-        setGenerationPhase("error");
         addToast(
           error instanceof Error ? error.message : "Regeneration failed",
           "error"
         );
-        setTimeout(() => setGenerationPhase("idle"), 3000);
 
         // Revert A/B state on failure
         updateLayer(layerId, {
           audioUrl: layer.audioUrl,
           previousAudioUrl: null,
+          generationStatus: undefined,
         });
         setABState(layerId, "none");
         setAbSelectedVersions((prev) => {
@@ -473,8 +467,6 @@ function StudioApp() {
           delete next[layerId];
           return next;
         });
-      } finally {
-        setIsGenerating(false);
       }
     },
     [
@@ -540,6 +532,21 @@ function StudioApp() {
     [handleGenerate, lyrics]
   );
 
+  const handleLandingSubmit = useCallback(
+    (prompt: string) => {
+      handleGenerate(prompt, false, {
+        tags: `drums, beat, rhythm, ${prompt}`,
+      });
+    },
+    [handleGenerate]
+  );
+
+  // Show landing when no project content and not generating
+  const showLanding =
+    layers.length === 0 &&
+    !project.originalClipId &&
+    generationPhase === "idle";
+
   return (
     <div className="h-screen flex flex-col bg-[#0d0d0d] text-white overflow-hidden">
       <StudioHeader
@@ -550,11 +557,20 @@ function StudioApp() {
         onExportMix={exportAudio}
       />
 
-      <div className="flex-1 flex overflow-hidden">
+      {/* Landing overlay — covers the studio when no project */}
+      {showLanding && (
+        <StudioLanding
+          onSubmit={handleLandingSubmit}
+          isSubmitting={isInitialGenerating}
+        />
+      )}
+
+      {/* Studio layout — always rendered for waveform-playlist init, hidden behind landing */}
+      <div className={`flex-1 flex overflow-hidden ${showLanding ? "invisible absolute" : ""}`}>
         {/* Left: AI Chat */}
         <ChatPanel
           project={project}
-          isGenerating={isGenerating}
+          isGenerating={isInitialGenerating}
           hasLayers={layers.length > 0}
           onGenerateTrack={handleChatGenerate}
           onAddLayer={handleAddLayer}
