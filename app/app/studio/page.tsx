@@ -62,6 +62,14 @@ function StudioApp() {
   const regenLayer = layers.find((l) => l.id === regenLayerId);
   const playlistContainerRef = useRef<HTMLDivElement>(null);
 
+  // Stable refs for callbacks that need current state without re-creating
+  const projectRef = useRef(project);
+  const abSelectedRef = useRef(abSelectedVersions);
+  const lyricsRef = useRef(lyrics);
+  useEffect(() => { projectRef.current = project; });
+  useEffect(() => { abSelectedRef.current = abSelectedVersions; });
+  useEffect(() => { lyricsRef.current = lyrics; });
+
   const {
     play: playAudio,
     pause: pauseAudio,
@@ -79,13 +87,22 @@ function StudioApp() {
     onFinish: () => setIsPlaying(false),
   });
 
-  useEffect(() => {
-    if (isPlaying) {
-      playAudio();
-    } else {
-      pauseAudio();
-    }
-  }, [isPlaying, playAudio, pauseAudio]);
+  const handlePlay = useCallback(() => {
+    setIsPlaying(true);
+    playAudio();
+  }, [playAudio]);
+
+  const handlePause = useCallback(() => {
+    setIsPlaying(false);
+    pauseAudio();
+  }, [pauseAudio]);
+
+  const handleTogglePlay = useCallback(() => {
+    setIsPlaying((prev) => {
+      if (prev) { pauseAudio(); } else { playAudio(); }
+      return !prev;
+    });
+  }, [playAudio, pauseAudio]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -99,7 +116,7 @@ function StudioApp() {
 
       if (e.code === "Space") {
         e.preventDefault();
-        setIsPlaying((prev) => !prev);
+        handleTogglePlay();
       }
       if (e.key === "r" || e.key === "R") {
         e.preventDefault();
@@ -109,16 +126,16 @@ function StudioApp() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [rewindAudio]);
+  }, [rewindAudio, handleTogglePlay]);
 
   // A/B: swap audioUrl <-> previousAudioUrl to toggle which version is audible
   const handleSelectABVersion = useCallback(
     (layerId: string, version: "a" | "b") => {
-      const currentVersion = abSelectedVersions[layerId] || "b";
+      const currentVersion = abSelectedRef.current[layerId] || "b";
       if (currentVersion === version) return;
 
       setAbSelectedVersions((prev) => ({ ...prev, [layerId]: version }));
-      const layer = project.layers.find((l) => l.id === layerId);
+      const layer = projectRef.current.layers.find((l) => l.id === layerId);
       if (!layer || !layer.previousAudioUrl) return;
 
       updateLayer(layerId, {
@@ -126,16 +143,16 @@ function StudioApp() {
         previousAudioUrl: layer.audioUrl,
       });
     },
-    [project.layers, updateLayer, abSelectedVersions]
+    [updateLayer]
   );
 
   const handleKeepVersion = useCallback(
     (layerId: string, version: "a" | "b") => {
-      const currentlyShowing = abSelectedVersions[layerId] || "b";
+      const currentlyShowing = abSelectedRef.current[layerId] || "b";
 
       // If the displayed version differs from the one to keep, swap audio URLs
       if (currentlyShowing !== version) {
-        const layer = project.layers.find((l) => l.id === layerId);
+        const layer = projectRef.current.layers.find((l) => l.id === layerId);
         if (layer?.previousAudioUrl) {
           updateLayer(layerId, {
             audioUrl: layer.previousAudioUrl,
@@ -159,7 +176,7 @@ function StudioApp() {
         addToast("New version kept!", "success");
       }
     },
-    [abSelectedVersions, project.layers, updateLayer, setABState, addToast]
+    [updateLayer, setABState, addToast]
   );
 
   const handleGenerate = useCallback(
@@ -358,8 +375,9 @@ function StudioApp() {
 
   const handleRegenerate = useCallback(
     async (layerId: string, prompt: string) => {
-      const layer = project.layers.find((l) => l.id === layerId);
-      if (!layer || !project.originalClipId) return;
+      const p = projectRef.current;
+      const layer = p.layers.find((l) => l.id === layerId);
+      if (!layer || !p.originalClipId) return;
 
       updateLayer(layerId, { previousAudioUrl: layer.audioUrl, generationStatus: "generating" });
       startABComparison(layerId);
@@ -372,12 +390,13 @@ function StudioApp() {
 
         // Auto-include lyrics for vocal layers
         const isVocalLayer = layer.stemType === "vocals" || layer.stemType === "backing_vocals";
-        const lyricsPrompt = isVocalLayer && lyrics.trim() ? lyrics : undefined;
+        const currentLyrics = lyricsRef.current;
+        const lyricsPrompt = isVocalLayer && currentLyrics.trim() ? currentLyrics : undefined;
 
         const data = await generate({
           topic: prompt,
           tags,
-          cover_clip_id: project.originalClipId,
+          cover_clip_id: p.originalClipId,
           prompt: lyricsPrompt,
         });
 
@@ -439,15 +458,7 @@ function StudioApp() {
         });
       }
     },
-    [
-      project.layers,
-      project.originalClipId,
-      updateLayer,
-      startABComparison,
-      setABState,
-      addToast,
-      lyrics,
-    ]
+    [updateLayer, startABComparison, setABState, addToast]
   );
 
   const handleModalRegenerate = useCallback(
@@ -471,7 +482,7 @@ function StudioApp() {
   }, []);
 
   const handleUseLyrics = useCallback(() => {
-    const vocalLayer = project.layers.find(
+    const vocalLayer = projectRef.current.layers.find(
       (l) => l.stemType === "vocals" || l.stemType === "backing_vocals"
     );
     if (vocalLayer) {
@@ -482,7 +493,7 @@ function StudioApp() {
     } else {
       addToast("Lyrics saved for next generation", "success");
     }
-  }, [addToast, project.layers, handleRegenerate]);
+  }, [addToast, handleRegenerate]);
 
   const handleChatGenerate = useCallback(
     (
@@ -492,14 +503,15 @@ function StudioApp() {
       options?: { negative_tags?: string; lyrics?: string }
     ) => {
       // Merge stored lyrics if no explicit lyrics provided
-      const effectiveLyrics = options?.lyrics || (lyrics.trim() ? lyrics : undefined);
+      const currentLyrics = lyricsRef.current;
+      const effectiveLyrics = options?.lyrics || (currentLyrics.trim() ? currentLyrics : undefined);
       handleGenerate(topic, instrumental, {
         tags,
         negative_tags: options?.negative_tags,
         lyrics: effectiveLyrics,
       });
     },
-    [handleGenerate, lyrics]
+    [handleGenerate]
   );
 
   // Landing → Chat flow: store prompt, let ChatPanel send it to the AI agent
@@ -581,10 +593,10 @@ function StudioApp() {
             duration={project.duration}
             zoom={zoom}
             masterVolume={masterVolume}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
+            onPlay={handlePlay}
+            onPause={handlePause}
             onStop={() => {
-              setIsPlaying(false);
+              handlePause();
               setCurrentTime(0);
               stopAudio();
             }}
