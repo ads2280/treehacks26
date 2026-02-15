@@ -16,6 +16,9 @@
     },
     "app/api/audio-proxy/route.ts": {
       "maxDuration": 10
+    },
+    "app/api/stem-demucs/route.ts": {
+      "maxDuration": 120
     }
   }
 }

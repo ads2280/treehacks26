@@ -24,7 +24,24 @@ function loadProject(): Project {
   if (typeof window === "undefined") return createEmptyProject();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as Project;
+    if (raw) {
+      const project = JSON.parse(raw) as Project;
+      // Clean up stale generation state: generationStatus is ephemeral (tied to
+      // async polling loops). After a page reload those loops are dead, so layers
+      // stuck in "generating"/"separating"/"loading" will never resolve.
+      // - Layers WITH audioUrl: clear status → playable
+      // - Layers WITHOUT audioUrl: dead placeholders → remove entirely
+      project.layers = project.layers
+        .filter((l) => l.audioUrl || !l.generationStatus)
+        .map((l) => {
+          if (l.generationStatus) {
+            const { generationStatus: _, ...clean } = l;
+            return clean as typeof l;
+          }
+          return l;
+        });
+      return project;
+    }
   } catch {
     // ignore
   }
@@ -34,7 +51,13 @@ function loadProject(): Project {
 function saveProject(project: Project) {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
+    // Strip generationStatus before saving — it's ephemeral runtime state
+    // tied to async flows that won't survive a page reload
+    const toSave = {
+      ...project,
+      layers: project.layers.map(({ generationStatus: _, ...rest }) => rest),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   } catch {
     // ignore - localStorage full
   }

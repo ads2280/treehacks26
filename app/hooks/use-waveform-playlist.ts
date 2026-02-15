@@ -215,15 +215,37 @@ export function useWaveformPlaylist({
       // isPlaying may throw if no tracks loaded yet
     }
 
-    // clear() hangs on empty playlist, so only call it when tracks exist
-    const loadTracks = playlist.tracks && playlist.tracks.length > 0
-      ? playlist.clear().then(() => playlist.load(tracks))
-      : playlist.load(tracks);
+    // Try loading all tracks. If the batch load fails (e.g. one bad URL),
+    // retry with each track individually, skipping failures.
+    const doLoad = async () => {
+      if (playlist.tracks && playlist.tracks.length > 0) {
+        await playlist.clear();
+      }
 
-    loadTracks
+      try {
+        await playlist.load(tracks);
+      } catch (batchErr) {
+        console.warn("Batch track load failed, retrying individually:", batchErr);
+
+        // Clear any partial state from the failed batch load
+        try { await playlist.clear(); } catch { /* noop */ }
+
+        // Load tracks one by one, skip failures
+        for (const track of tracks) {
+          try {
+            await playlist.load([track]);
+          } catch (trackErr) {
+            console.error(`Failed to load track "${track.name}":`, trackErr);
+          }
+        }
+      }
+    };
+
+    doLoad()
       .then(() => {
-        setIsLoaded(true);
-        if (playlistRef.current) {
+        const loaded = playlist.tracks && playlist.tracks.length > 0;
+        setIsLoaded(loaded);
+        if (loaded && playlistRef.current) {
           onDurationChangeRef.current(playlistRef.current.duration);
         }
       })

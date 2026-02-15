@@ -65,27 +65,14 @@ export interface Project {
 
 export interface SunoClip {
   id: string;
-  video_url: string;
-  audio_url: string;
-  image_url: string | null;
-  image_large_url: string | null;
-  is_video_pending: boolean;
-  major_model_version: string;
-  model_name: string;
-  metadata: Record<string, unknown>;
-  is_liked: boolean;
-  user_id: string;
-  display_name: string;
-  handle: string;
-  is_handle_updated: boolean;
-  is_trashed: boolean;
-  reaction: null;
-  created_at: string;
+  request_id?: string;
   status: "submitted" | "queued" | "streaming" | "complete" | "error";
   title: string;
-  play_count: number;
-  upvote_count: number;
-  is_public: boolean;
+  audio_url: string;
+  image_url?: string | null;
+  image_large_url?: string | null;
+  created_at: string;
+  metadata: Record<string, unknown>;
 }
 
 export interface SunoGenerateRequest {
@@ -139,6 +126,11 @@ export const STEM_LABELS: Record<StemType, string> = {
   woodwinds: "Woodwinds",
 };
 
+export const ALL_STEM_TYPES: StemType[] = [
+  "drums", "bass", "vocals", "guitar", "keyboard", "synth",
+  "backing_vocals", "percussion", "strings", "fx", "brass", "woodwinds",
+];
+
 export const SUNO_API_BASE =
   "https://studio-api.prod.suno.com/api/v2/external/hackathons";
 
@@ -176,6 +168,47 @@ export const STEM_NAME_TO_TYPE: Record<string, StemType> = {
   Brass: "brass",
   Woodwinds: "woodwinds",
 };
+
+// --- Model Routing ---
+
+export type ModelProvider = "openai" | "anthropic";
+
+// --- Demucs (Modal) ---
+
+export interface DemucseStemResult {
+  vocals?: string;
+  drums?: string;
+  bass?: string;
+  other?: string;
+}
+
+export interface DemucsResponse {
+  job_id: string;
+  stems: DemucseStemResult;
+}
+
+export interface DemucsClientStem {
+  stemType: StemType;
+  audioUrl: string;
+  source: "demucs";
+}
+
+export interface DemucsClientResponse {
+  job_id: string;
+  stems: DemucsClientStem[];
+}
+
+/** Maps Demucs stem names to StemType. "other" deliberately excluded (no clean mapping). */
+export const DEMUCS_TO_STEM_TYPE: Record<string, StemType> = {
+  vocals: "vocals",
+  drums: "drums",
+  bass: "bass",
+};
+
+/** Demucs stem types we actively use (exclude "other") */
+export const DEMUCS_USABLE_STEMS: StemType[] = ["vocals", "drums", "bass"];
+
+// --- Smart Suggestions ---
 
 export interface SmartSuggestion {
   label: string;

@@ -1,248 +1,201 @@
-# LayerTune - AI Music Composition App (TreeHacks 2026)
+# ProduceThing — AI Music Composition Studio (TreeHacks 2026)
 
 ## Project Vision
 Layer-by-layer music composition through natural language. Users describe vibes, add layers (drums, melody, vocals, bass), regenerate individual layers, and export. "I made this myself" feeling.
 
 ## Core Principles
-- **Progressive Composition** - Build music incrementally, not all at once
-- **Surgical Control** - Regenerate individual layers without affecting others
-- **Ownership Through Process** - Multiple creative decisions = authentic ownership
-- **Simplicity Over Features** - No knobs, no DAW complexity, just describe and refine
+- **Progressive Composition** — Build music incrementally, not all at once
+- **Surgical Control** — Regenerate individual layers without affecting others
+- **Ownership Through Process** — Multiple creative decisions = authentic ownership
+- **Simplicity Over Features** — No knobs, no DAW complexity, just describe and refine
 
-## Prize Targets
-- **Suno: Best Musical Hack** (1st: guaranteed Suno interview + 1yr Premier) - PRIMARY
-- **TreeHacks Grand Prize** ($12k)
-- **Most Creative** (Pioneer DJ DDJ-FLX4)
-- **Vercel: Best Deployed on Vercel** ($2k + Pro credits)
-- **Anthropic: Human Flourishing Track** (tungsten cubes)
+## Tech Stack (Actual)
+- **Framework**: Next.js 16, React 19, TypeScript, App Router
+- **Styling**: Tailwind CSS 4, Radix UI (headless components), lucide-react icons
+- **AI Chat**: Vercel AI SDK v6 — GPT-5 Nano (Normal mode) + Claude Opus 4.6 (Agent mode)
+- **AI Music**: Suno API (unlimited TreeHacks credits)
+- **Stem Separation**: Suno /stem (12 stems) + Modal Demucs (3 stems, parallel, faster)
+- **Audio**: waveform-playlist (multitrack waveforms) + Web Audio API (mixing)
+- **Persistence**: localStorage only (no database)
+- **Deploy**: Vercel (vercel.json configured, region iad1) + Modal (Demucs GPU endpoint)
+- **Testing**: Vitest + Testing Library + Playwright
 
-## Tech Stack
-- **Frontend**: React 18, TypeScript, TailwindCSS, Vite
-- **Backend**: Express.js/Node.js
-- **AI Music**: Suno API (primary, UNLIMITED credits) + optionally ACE-Step on Modal
-- **Audio**: Web Audio API for client-side mixing/playback (consider waveform-playlist npm package)
-- **Deploy**: Vercel (frontend) + separate backend
-- **DB**: SQLite via better-sqlite3 (from ace-step-ui reference)
-- **Icons**: lucide-react
-
-## API Access
-- **Suno TreeHacks API**: `https://studio-api.prod.suno.com/api/v2/external/hackathons/`
-  - POST /generate (5 credits, topic/tags/prompt/make_instrumental/cover_clip_id/negative_tags)
-  - GET /clips?ids= (check status, get audio_url)
-  - POST /stem (25 credits, splits into 12 stems)
-  - Rate limits: 60 songs/min, 5 stems/min, 100 clip fetches/min
-  - Streaming: audio_url available when status="streaming" (~30s), final MP3 at status="complete" (~2min)
-  - Status flow: submitted → queued → streaming → complete | error
-  - Token: Bearer token from Suno booth
-  - **UNLIMITED credits** - spam freely
-- **Suno Tags**: Use 4-8 style tags for best results. Place most important tags first. Tags control genre, instruments, mood, vocal style.
-  - Structure tags go in lyrics field: [Intro], [Verse], [Chorus], [Bridge], [Outro]
-  - Instrument tags: "drums, trap, 808s", "piano, acoustic, minimal", etc.
-  - cover_clip_id: Create variations maintaining musical coherence
-- **RunPod**: GPU serverless (for self-hosted models, FlashBoot <250ms cold start)
-- **Modal**: GPU compute + sandboxes (has official ACE-Step example on L40S)
-- **Other**: OpenAI, Google Cloud, NVIDIA, Anthropic Claude, Perplexity Sonar, Cloudflare, Browserbase
-
-## Research Findings (Feb 14, 2026)
-
-### Suno API - PRIMARY ENGINE
-- Best quality output (commercial-grade)
-- 12 clean stems: Vocals, Backing Vocals, Drums, Bass, Guitar, Keyboard, Percussion, Strings, Synth, FX, Brass, Woodwinds
-- Limitation: Can't surgically regen ONE stem - must generate full track + re-separate
-- Tags parameter controls instrument dominance (e.g., "drums, trap" biases toward drums)
-- cover_clip_id creates variations maintaining melody/harmony - USE THIS for layer regen coherence
-- Streaming playback starts at ~30s, full song done ~2min
-- **Stem rate limit is the bottleneck**: 5 stems/min. Batch layer regens when possible.
-- **demucs-web exists in ace-step-ui reference** (`server/public/demucs-web/`) - FREE browser-based stem separation as alternative to 25-credit /stem calls
-- Layer regen strategy: use cover_clip_id + targeted tags → stem → swap single layer
-
-### ACE-Step 1.5 - OPTIONAL SECONDARY
-- Open-source 3.5B model, quality between Suno v4.5 and v5
-- Task types: text2music, repaint (time regions), edit (FlowEdit), extend, retake, audio2audio
-- ACE-Step 1.5 also has: Lego (one track at a time), Extract (isolate stems), Complete (fill missing tracks)
-- Repaint: regenerate specific TIME REGION, not per-instrument (latent space mask)
-- Runs on 4GB VRAM minimum, <2s per song on A100, <10s on RTX 3090
-- Deploy on Modal (official example exists) or RunPod (~$0.13/gen on A40)
-- Reference app (ace-step-ui) connects via @gradio/client
-
-### MusicGen (Meta) - NOT RECOMMENDED
-- No native multi-stem, no vocals, 64s latency, $0.089/run on Replicate
-- MusicGen-Stem (3 stems: bass, drums, other) - code NOT publicly released (PR #509 unmerged)
-
-### Audio Separation Alternatives
-- Suno built-in: 12 stems, zero setup, best for our use case
-- Demucs: 4-6 stems, open-source, good quality, needs self-hosting
-- Meta SAM-Audio (Dec 2025): text-prompted separation, too new/risky for hackathon
-
-### Client-Side Audio Libraries
-- **waveform-playlist** (npm): React multitrack editor with mute/solo/volume, canvas waveforms, WAV export, Tone.js effects - has stem tracks example
-- **Tone.js**: Lower-level, sample-accurate scheduling, effects chain
-- **Raw Web Audio API**: AudioContext + GainNode per stem + StereoPannerNode
-
-## References Directory
-
-### `references/ace-step-ui/` - Full music gen UI (React/TS/TailwindCSS + Express)
-**Copy-paste ready components:**
-- Toast.tsx (54 lines) - success/error/info notifications, auto-dismiss
-- ConfirmDialog.tsx (90 lines) - modal with backdrop blur, escape key, danger mode
-- EditableSlider.tsx (~100 lines) - slider with inline text editing
-- Sidebar.tsx (~226 lines) - collapsible nav, theme toggle, profile section
-- AlbumCover.tsx - seed-based placeholder art
-- ResponsiveContext.tsx - isMobile/isDesktop via matchMedia
-- AuthContext.tsx - JWT token management, localStorage persistence
-
-**Adapt for LayerTune:**
-- Player.tsx (~840 lines) - full player with progress, volume, speed control → adapt for multi-stem Web Audio
-- CreatePanel.tsx (~1000+ lines) - generation form with simple/custom modes → simplify for layer prompts
-- SongList.tsx (~500+ lines) - filterable list with search, drag-drop → becomes LayersList
-- RightSidebar.tsx (~400+ lines) - song details panel → layer info with solo/mute/volume
-
-**Server architecture (fully reusable):**
-- Express.js + Helmet + CORS + static serving
-- SQLite via better-sqlite3 with helper functions (generateUUID, toJSON, transaction, batchInsert)
-- JWT authentication (username-only, no passwords)
-- Generation queue (priority tiers, fairness, per-user concurrency, batch window)
-- Storage abstraction (local/S3/Azure factory pattern)
-- Gradio client integration for ACE-Step
-- Cron-based cleanup service
-
-**Key dependencies (frontend):** react 19, lucide-react, @ffmpeg/ffmpeg, vite 6
-**Key dependencies (server):** express, better-sqlite3, @gradio/client, helmet, jsonwebtoken, multer, node-cron, uuid
-
-### `references/ComfyUI_ACE-Step/` - ACE-Step model pipeline code
-- Model: music_dcae (encoder/decoder) + ACEStepTransformer (28 blocks, 1536 hidden, 24 heads) + vocoder + umt5-base text encoder
-- Total model size: ~3.35GB
-- Pipeline supports: text2music, repaint, edit, extend, retake, audio2audio tasks
-- Repaint algorithm: latent-space masked diffusion on time regions
-- FlowEdit: velocity blending between source and target prompts
-- LoRA support for style fine-tuning
-
-## Key Architecture Decisions
-- **Suno-first approach**: Generate full track → stem separate → display as layers → regen via new full track + stem swap
-- **Client-side mixing**: Web Audio API with GainNode per stem for volume/mute
-- **Non-blocking generation**: Polling-based status updates while user continues working
-- **A/B comparison**: Side-by-side playback of before/after when regenerating a layer
-- **waveform-playlist** for timeline UI (React, mute/solo/volume, waveform viz, WAV export)
-
-## Suno API Workflow for Layers
-1. User describes vibe → POST /generate with topic+tags
-2. Poll GET /clips?ids= every 5-10s until status="streaming" or "complete"
-3. POST /stem on completed clip → 12 stems (poll all 12 IDs via /clips until complete)
-4. Display relevant stems as layers in timeline with waveforms
-5. To regen a layer: POST /generate with layer-specific tags → POST /stem → replace that stem
-6. Web Audio API mixes all active stems client-side
-7. Export: WAV via waveform-playlist or download individual stems
-
-## PRD - User Flow
-
-### 1. Project Creation
-- Blank canvas with single text input: "Describe your music..."
-- User types vibe/genre/feeling (e.g., "lofi hip-hop, rainy day, nostalgic")
-- System generates 15-30 second sketch → auto-stems → first layers appear
-- Text updates: "Analyzing vibe..." → "Generating foundation..." → "Separating layers..."
-- Non-blocking (user can continue working)
-
-### 2. Layer Management
-- Smart suggestions: [+ Add drums] [+ Add melody] [+ Add vocals] [+ Add bass]
-- Freeform text input for custom layer descriptions
-- Each layer shows: name, waveform, volume slider, mute/solo buttons, regenerate button
-- Layers generate in background with progress indicators
-
-### 3. Layer Regeneration
-- Click regenerate icon next to any layer
-- Prompt: "How should this change?" with text input
-- System generates new full track with layer-specific tags → stems → swaps that layer
-- A/B comparison mode: side-by-side before/after playback
-- User picks which version to keep
-
-### 4. Visual Layout - Timeline View
-- Horizontal timeline with playhead scrubber
-- Each layer as a track with waveform visualization
-- Per-layer controls: volume, mute, solo, regenerate, delete
-- Global transport: play/pause, timeline position, total duration
-- "Add layer" button at bottom
-
-### 5. Playback
-- Play full mix from any position
-- Per-layer mute/solo for focused listening
-- Volume faders per layer
-- A/B comparison when regenerating (synced playback)
-
-### 6. Export
-- Full mix as MP3/WAV
-- Individual stems download
-- Auto-save (every action persists)
-
-### 7. Error Handling
-- "Not what you wanted?" → [Try Again] or [Refine with prompt]
-- No system quality judgment - user decides
-- Simple retry with same or modified prompt
-
-## Technical Constraints
-- Non-blocking layer generation
-- Support up to 10 concurrent layers
-- Maximum track length: 3 minutes (v1)
-- Desktop browser primary target
-- Deploy on Vercel (frontend) + separate backend host
-
-## File Structure
+## Environment Variables
 ```
-src/
-  components/       # React UI components
-    Sidebar.tsx
-    Player.tsx       # Multi-stem audio player
-    LayersList.tsx   # Layer management panel
-    Timeline.tsx     # Waveform timeline view
-    CreatePanel.tsx  # Vibe description + layer addition
-    Toast.tsx
-    ConfirmDialog.tsx
-  services/
-    api.ts          # Backend API client
-    suno.ts         # Suno API types/helpers
-  hooks/
-    useAudioMixer.ts # Web Audio API multi-stem mixing
-    usePolling.ts    # Generation status polling
-  context/
-    AuthContext.tsx
-    ProjectContext.tsx # Current composition state
-    ResponsiveContext.tsx
-  types/
-    index.ts        # Layer, Project, Stem types
-  utils/
-    audio.ts        # Audio helpers
-server/
-  src/
-    index.ts        # Express entry point
-    routes/
-      generate.ts   # Suno generation + stem endpoints
-      projects.ts   # Project CRUD
-    services/
-      suno.ts       # Suno API client (generate, clips, stem)
-      queue.ts      # Generation job queue
-    db/
-      index.ts      # SQLite setup
-      schema.sql    # projects, layers, stems, generation_jobs tables
+SUNO_API_KEY=<bearer token from Suno TreeHacks booth>
+OPENAI_API_KEY=<sk-... for gpt-5-nano chat>
+ANTHROPIC_API_KEY=<sk-ant-... for Claude Opus agent mode>
+MODAL_DEMUCS_URL=<https://your-username--layertune-demucs.modal.run>
 ```
 
-## Database Schema (SQLite)
-```sql
-projects(id, title, vibe_prompt, bpm, key_scale, duration, created_at, updated_at)
-layers(id, project_id, name, stem_type, prompt, audio_url, volume, is_muted, is_soloed, position, created_at)
-generation_jobs(id, project_id, layer_id, suno_clip_id, status, params, result, error, created_at)
-stems(id, generation_job_id, stem_name, suno_stem_id, audio_url, status, created_at)
+## Commands
+```bash
+cd app && npm run dev     # Next.js dev server (port 3000)
+cd app && npm run build   # Production build
+cd app && npm test         # Vitest run
+cd app && npm run test:watch  # Vitest watch mode
 ```
+
+## File Structure (Actual)
+```
+app/                          # Next.js app root (all code lives here)
+├── app/                      # App Router
+│   ├── page.tsx              # Landing page (hero, animated card gallery)
+│   ├── layout.tsx            # Root layout with Vercel analytics
+│   ├── studio/
+│   │   └── page.tsx          # ★ Main studio orchestrator (~700 lines)
+│   └── api/
+│       ├── generate/route.ts # POST — Suno generate proxy
+│       ├── stem/route.ts     # POST — Suno stem separation proxy
+│       ├── stem-demucs/route.ts # POST — Modal Demucs stem separation
+│       ├── clips/route.ts    # GET  — Suno clip status polling proxy
+│       ├── chat/route.ts     # POST — AI chat (dual model + agent mode)
+│       └── audio-proxy/route.ts  # GET — CDN audio proxy (Suno + Modal)
+├── components/
+│   ├── studio/               # App-specific components
+│   │   ├── chat-panel.tsx       # AI chat interface (drag-layer-to-chat)
+│   │   ├── layer-sidebar.tsx    # Layer list with mute/solo/volume
+│   │   ├── waveform-display.tsx # Waveform container div
+│   │   ├── transport-bar.tsx    # Play/pause/stop, seek bar, zoom, master volume
+│   │   ├── generation-overlay.tsx # Spinner + phase text during generation
+│   │   ├── studio-header.tsx    # Title, export menu (WAV/stems)
+│   │   ├── lyrics-panel.tsx     # Lyrics editor with structure tags
+│   │   ├── studio-landing.tsx   # Initial vibe prompt input
+│   │   ├── modals.tsx           # Regenerate + delete confirmation dialogs
+│   │   └── toast-provider.tsx   # Toast notification system
+│   └── ui/                   # Radix-based headless UI primitives (~30 files)
+├── hooks/
+│   ├── use-project.ts        # ★ Project state (layers, cache, A/B, localStorage)
+│   └── use-waveform-playlist.ts # ★ Waveform rendering + playback control
+├── lib/
+│   ├── api.ts                # Client-side API helpers (generate, stem, stemDemucs, poll)
+│   ├── suno.ts               # Server-side Suno API client (retry, normalize)
+│   ├── demucs.ts             # Server-side Modal Demucs client
+│   ├── layertune-types.ts    # All types, constants, color/label maps
+│   ├── audio-utils.ts        # Audio download helpers
+│   └── utils.ts              # cn() utility
+├── public/                   # Static assets (SVGs, branding images)
+modal/
+└── demucs_endpoint.py        # Modal Python function — htdemucs on T4 GPU
+```
+
+## Architecture
+
+### State Management
+All state lives in `use-project.ts` hook → React useState + localStorage persistence. No database, no backend state. Key state:
+- `project`: title, vibePrompt, originalClipId, stemCache
+- `layers`: array of Layer objects (audioUrl, volume, mute, solo, stemType)
+- `abState`: per-layer A/B comparison state
+- `masterVolume`: global volume multiplier
+
+### Generation Flow (Parallel Pipeline)
+1. User describes vibe → `POST /api/generate` (Suno) → poll until `complete`
+2. **Parallel stem separation**: fire both Demucs (~20s, 3 stems) and Suno /stem (12 stems) simultaneously
+3. `deliveredStems` Set deduplicates — first pipeline to deliver each stem wins
+4. First stem (drums) becomes a layer immediately, rest cached in `stemCache`
+5. Demucs delivers vocals/drums/bass fast; Suno fills remaining 9 stems
+6. If Demucs fails, `.catch()` swallows error — Suno handles all 12 stems (zero degradation)
+7. User clicks "+ Bass" → check cache first (instant), else generate new track with `cover_clip_id` → stem → swap
+
+### Layer Regeneration
+1. User clicks regenerate → enters A/B mode (`previousAudioUrl` stored)
+2. Generate new track with `cover_clip_id` + layer-specific tags → stem → swap `audioUrl`
+3. User picks "Keep A" (revert) or "Keep B" (accept new)
+
+### Audio Playback
+- `waveform-playlist` renders canvas waveforms per track
+- Web Audio API handles mixing (GainNode per stem, master gain)
+- Per-layer controls: volume [0,1], mute, solo
+- Export: WAV via waveform-playlist, individual stems via download
+
+### AI Chat Integration
+- **Dual model routing**: GPT-5 Nano (Normal mode, fast/cheap) or Claude Opus 4.6 (Agent mode, powerful multi-step)
+- Model selection via dropdown in chat header; Agent mode forces Claude Opus
+- 6 tools: `generate_track`, `add_layer`, `regenerate_layer`, `remove_layer`, `set_lyrics`, `get_composition_state`
+- Client dispatches tool calls via `onToolCall` → `addToolOutput()` (NOT return value — see Bug #7)
+- Drag-layer-to-chat targets a specific layer for editing
+- Dynamic import (`next/dynamic`, ssr: false) to avoid SSR issues
+- Transport uses `useRef` + `useMemo` for stability — `body: () => ({...ref.current})` reads latest model/agent state per request
+
+### Agent Mode (Claude Opus)
+- Autonomous multi-step composition from a single prompt
+- **Plan → Execute → Observe → Reflect** loop: agent reasons between tool calls
+- Tool results are enriched: in agent mode, callbacks `await` the full Suno flow and return detailed state (cached stems list, layer count, etc.)
+- In normal mode, callbacks fire-and-forget and return immediately
+- `sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls` creates the agent loop naturally
+- Agent can't "hear" audio — reasoning is structural (genre → stems), not sonic
+
+### API Routes (Next.js Route Handlers)
+All routes are thin proxies to external APIs:
+- `/api/generate` — calls `suno.ts:generateTrack()`, normalizes response
+- `/api/stem` — calls `suno.ts:stemClip()`, normalizes response
+- `/api/stem-demucs` — calls `demucs.ts:separateWithDemucs()` (Modal), maps results through `DEMUCS_TO_STEM_TYPE`
+- `/api/clips` — calls `suno.ts:getClips()`, max 20 IDs per request
+- `/api/chat` — dynamic model selection (GPT-5 Nano or Claude Opus), Zod-typed tools, streams response
+- `/api/audio-proxy` — whitelist-based CDN proxy (cdn1/2.suno.ai, audiopipe.suno.ai, modal.run)
+
+### Suno API Reference
+Base URL: `https://studio-api.prod.suno.com/api/v2/external/hackathons`
+- **POST /generate** — 5 credits. Params: `topic`, `tags`, `prompt`, `make_instrumental`, `cover_clip_id`, `negative_tags`
+- **GET /clips?ids=** — poll status. Status flow: `submitted → queued → streaming → complete | error`
+- **POST /stem** — 25 credits. Splits into 12 stems: Vocals, Backing Vocals, Drums, Bass, Guitar, Keyboard, Percussion, Strings, Synth, FX, Brass, Woodwinds
+- Rate limits: 60 songs/min, **5 stems/min** (bottleneck), 100 clips/min
+- `cover_clip_id` creates variations maintaining melody/harmony — **use this for coherent layer regeneration**
+- Tags: 4-8 style tags, most important first. Genre + instrument + mood combos work best.
+- Stem titles come as "Song Name - Stem Name" → extract after last " - " (Bug #4)
+- **IMPORTANT**: Wait for `status=complete` before calling `/stem` (Bug #2)
+
+### Retry Logic (suno.ts)
+- Max 3 retries with exponential backoff (1s, 2s, 4s + jitter, capped at 30s)
+- 429: uses `Retry-After` header if present
+- 5xx: retries with backoff
+- Other errors: throws immediately
+
+## Vercel Deployment
+```json
+{
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "functions": {
+    "app/api/chat/route.ts": { "maxDuration": 60 },
+    "app/api/generate/route.ts": { "maxDuration": 30 },
+    "app/api/stem/route.ts": { "maxDuration": 30 },
+    "app/api/clips/route.ts": { "maxDuration": 10 },
+    "app/api/audio-proxy/route.ts": { "maxDuration": 10 },
+    "app/api/stem-demucs/route.ts": { "maxDuration": 120 }
+  }
+}
+```
+
+## Key Patterns & Gotchas
+
+### React Patterns
+- **Ref-stable callbacks**: Use `useCallback` + `projectRef.current = project` to avoid stale closures in async polling loops
+- **Dynamic import for SSR-unsafe deps**: `dynamic(() => import(...), { ssr: false })` for waveform-playlist and chat panel
+- **No side effects in setState updaters**: Read state directly, don't rely on values set inside `setState(prev => ...)` (Bug #6)
+- **Always render ref containers**: Never conditionally render a `<div ref={...}>` used by a mount-only `[]` deps effect (Bug #5)
+
+### AI SDK v6 Patterns
+- Tool results via `addToolOutput()`, NOT return value from `onToolCall` (Bug #7)
+- Do NOT `await addToolOutput()` — causes deadlocks
+- `sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls` for auto tool dispatch
+- Small models need explicit system prompt instructions to prefer tool calls over inline text (Bug #8)
+
+### Suno API Patterns
+- Always normalize responses — may return flat object OR `{ clips: [...] }` (Bug #1, #3)
+- Wait for `status=complete` before stem separation (Bug #2)
+- Stem titles are "Song Name - Stem Name", not just "Stem Name" (Bug #4)
+- `cover_clip_id` is the key to coherent layer regeneration
 
 ## Context Management: The Sink Pattern
 
-To prevent context explosion, **never let verbose commands print raw output to stdout**. Decouple **Logging** (full detail) from **Reporting** (key insight).
-
-### 1. Quiet Wrapper for Shell Commands
+Never let verbose commands print raw output to stdout. Decouple **Logging** from **Reporting**.
 
 ```bash
-# BAD (dumps thousands of lines into context):
+# BAD:
 npm run build
 
-# GOOD (The Sink):
+# GOOD:
 npm run build > .logs/build.log 2>&1
 if [ $? -eq 0 ]; then
   echo "Build successful. (Logs: .logs/build.log)"
@@ -252,69 +205,54 @@ else
 fi
 ```
 
-### 2. Agent Summary Files for Sub-Agents
+For sub-agents: write to `.runs/agent-name/summary.md`. Main workflow reads summary only, never raw logs.
 
-- Give each parallel agent a dedicated folder (e.g., `.runs/agent-name/`)
-- Agent writes chain-of-thought to `.runs/agent-name/thought_process.md`
-- Agent MUST produce a final `summary.md` or `status.json` on completion
-- Main workflow ONLY polls for and reads `summary.md`, never raw logs
-
-### 3. LLM-Based Summarizer (Traffic Cop)
-
-For complex output that can't be tailed: redirect to file, send to a cheap/fast model (Haiku) with prompt "Extract only critical error or success metric. Be brief.", print that response.
-
-### Checklist
-1. Identify verbose steps (test runner, build, sub-agents)
-2. Redirect with `> .logs/step_name.log 2>&1`
-3. Produce a small artifact (result.txt) with pass/fail
-4. Display ONLY the artifact
-
-## Debug Log: Running Notes
-
-Maintain a running list of bugs found and how they were debugged. This builds institutional memory so the same mistakes aren't repeated. Jot down the logic chain, not just the fix.
+## Debug Log
 
 ### Bug #1: Suno `/generate` response format mismatch
 - **Symptom**: "No clips returned" error after clicking Generate
-- **Debug chain**: Browser showed toast error → checked network (200 OK) → curl'd API directly → saw response is a flat clip object `{id, status, ...}` not `{clips: [...]}` → code expected `data.clips?.map(...)` which returned undefined
-- **Fix**: Normalize response in `suno.ts:generateTrack()` — if `data.clips` missing, wrap `[data]`
-- **Root cause**: Suno API docs implied array response, actual API returns single object
+- **Root cause**: Suno returns flat clip object `{id, status, ...}`, not `{clips: [...]}`
+- **Fix**: Normalize in `suno.ts:generateTrack()` — if `!data.clips`, wrap `[data]`
 
-### Bug #2: Stem separation 500 error — clip not ready
-- **Symptom**: Generate phase succeeded but no layers appeared, no error toast shown
-- **Debug chain**: Checked network requests → `/api/stem` returned 500 → Suno error: "Clip is not ready for stem separation (status: streaming)" → code used `acceptStreaming: true` for main clip polling, moved to stem call too early
-- **Fix**: Changed `acceptStreaming: false` in all three generation flows (handleGenerate, handleAddLayer, handleRegenerate) so we wait for `complete` before calling `/stem`
-- **Root cause**: Comment in code was wrong — assumed stem only needs clip ID, but Suno requires full completion
+### Bug #2: Stem separation 500 — clip not ready
+- **Symptom**: Generate succeeded but no layers appeared
+- **Root cause**: Code called `/stem` while clip was still `streaming`. Suno requires `complete`.
+- **Fix**: Set `acceptStreaming: false` in all generation flows before calling `/stem`
 
 ### Bug #3: Stem response format (preventive)
-- **Symptom**: Not yet hit, but same pattern as Bug #1
-- **Fix**: Added normalization in `suno.ts:stemClip()` to handle flat object or array responses
+- Same normalization pattern as Bug #1, applied to `stemClip()`
 
-### Bug #4: All layers show as "FX" — stem name mapping failure
-- **Symptom**: After generation, all 12 layers display as "FX" with purple dots instead of proper names (Vocals, Drums, Bass, etc.)
-- **Debug chain**: Saw all layers labeled "FX" → checked `STEM_NAME_TO_TYPE` mapping → maps "Vocals" but Suno returns "Rainy Reverie - Vocals" (title includes song name) → direct lookup fails → falls back to 'fx' default
-- **Fix**: Updated `stemTitleToType()` in `api.ts` to extract stem name after last " - " separator
-- **Root cause**: Suno stem clip titles are formatted as "Song Name - Stem Name", not just "Stem Name"
+### Bug #4: All layers show as "FX" — stem name mapping
+- **Root cause**: Suno returns "Song Name - Vocals", not just "Vocals". Direct lookup fails.
+- **Fix**: `stemTitleToType()` extracts stem name after last " - " separator
 
-### Bug #5: Waveforms not rendering — conditional ref + mount-only effect race condition
-- **Symptom**: After generation, layers appear with correct names/colors but waveform area is empty (black), duration shows 0:00
-- **Debug chain**: Added console.log to useWaveformPlaylist.ts → init effect never fires (no "init:" logs) → trackLoad effect fires but playlist/ee/isInitialized all false → containerRef.current is null at mount time → early return, never retries ([] deps)
-- **Root cause**: `LayerTimeline` conditionally rendered the playlist container div — only when `layers.length > 0`. On initial mount, layers is empty, so the `<div ref={playlistContainerRef}>` doesn't exist. The init `useEffect` with `[]` deps runs once, sees null ref, returns early, and never retries.
-- **Fix**: Restructured `LayerTimeline` to always render the playlist container div in the DOM. Empty state message is now an absolute-positioned overlay on top instead of a replacement. This ensures the ref is always available when the mount effect fires.
-- **Lesson**: Never conditionally render a container element that's used as a ref for a mount-only (`[]` deps) useEffect. Either always render it, or use a callback ref that triggers state changes.
+### Bug #5: Waveforms not rendering — conditional ref + mount-only effect
+- **Root cause**: Playlist container `<div ref={...}>` conditionally rendered (only when `layers.length > 0`). Mount effect with `[]` deps sees null ref, never retries.
+- **Fix**: Always render the container div. Empty state is an overlay, not a replacement.
+- **Lesson**: Never conditionally render a ref target used by a `[]` deps effect.
 
-### Bug #6: consumeCachedStem always returns null — React batched setState updater
-- **Symptom**: Clicking "+ Bass" (which was in stemCache) triggered full Suno generation instead of instant cache hit
-- **Debug chain**: Checked localStorage → bass was in stemCache → consumeCachedStem called → returns null → falls through to API → inspected code: uses `let found = null` set inside `setProject((prev) => { found = match; ... })` → React 18+ batches state updates, the updater function runs during rendering, NOT synchronously at the `setProject` call site → `return found` executes before the updater runs → always null
-- **Fix**: Replaced `consumeCachedStem()` with direct `project.stemCache.find()` read + `setStemCache(filtered)` in `handleAddLayer`. Reading current state is synchronous and reliable.
-- **Lesson**: Never rely on side-effects inside React `setState` updater functions to return values. The updater is deferred. Read state directly from the current render's state variable instead.
+### Bug #6: consumeCachedStem returns null — React batched setState
+- **Root cause**: `let found = null` set inside `setProject(prev => { found = match; ... })`. React 18+ batches updates — updater runs during rendering, not at call site. `return found` executes before updater runs.
+- **Fix**: Read `project.stemCache.find()` directly instead of relying on setState side effects.
+- **Lesson**: Never rely on side-effects inside `setState` updaters to return values.
 
-### Bug #7: AI SDK v6 MissingToolResultsError — onToolCall return value ignored
-- **Symptom**: First chat message (tool call) succeeded but auto-send of tool results failed with `AI_MissingToolResultsError: Tool result is missing for tool call`. Subsequent messages got 503.
-- **Debug chain**: Server log showed error during second `/api/chat` call → `convertToModelMessages` found tool_call without tool_result → client was returning from `onToolCall` but AI SDK v6 ignores the return value → tool result never stored in message → auto-send sent incomplete messages
-- **Fix**: Destructure `addToolOutput` from `useChat()` return. In `onToolCall`, call `addToolOutput({ toolCallId: toolCall.toolCallId, output })` explicitly instead of returning a value.
-- **Lesson**: In AI SDK v6, `onToolCall` return values do NOT set tool results. Must use `addToolOutput()` explicitly. Do NOT await `addToolOutput` (causes deadlocks).
+### Bug #7: AI SDK v6 MissingToolResultsError
+- **Root cause**: `onToolCall` return value is ignored in AI SDK v6. Tool result never stored.
+- **Fix**: Use `addToolOutput({ toolCallId, output })` explicitly. Do NOT await it.
+- **Lesson**: AI SDK v6 requires explicit `addToolOutput()`, not return values.
 
-### Bug #8: AI writes lyrics as text instead of calling set_lyrics tool
-- **Symptom**: User asked for lyrics → AI wrote them inline in chat text instead of calling the `set_lyrics` tool → lyrics panel stayed empty
-- **Fix**: Strengthened system prompt: "IMPORTANT: When the user asks for lyrics, ALWAYS use the set_lyrics tool. Never write lyrics as plain text."
-- **Lesson**: GPT-4o-mini needs explicit instructions to prefer tool calls over inline responses for content-heavy tools.
+### Bug #8: AI writes lyrics inline instead of calling set_lyrics
+- **Root cause**: GPT-4o-mini defaults to inline text over tool calls for content-heavy responses.
+- **Fix**: System prompt: "IMPORTANT: When the user asks for lyrics, ALWAYS use the set_lyrics tool."
+- **Lesson**: Small models need explicit instructions to prefer tool calls.
+
+## Prize Targets
+- **Suno: Best Musical Hack** — PRIMARY (guaranteed interview + 1yr Premier)
+- **TreeHacks Grand Prize** ($12k)
+- **Most Creative** (Pioneer DJ DDJ-FLX4)
+- **Vercel: Best Deployed on Vercel** ($2k + Pro credits)
+- **Greylock: Best Multi-Turn Agent** (Warriors courtside tickets) — agent mode
+- **Anthropic: Human Flourishing Track** (tungsten cubes) — Claude integration
+- **Anthropic: Best Use of Claude Agent SDK** ($2.5k credits) — agent mode
+- **Decagon: Best Conversation Assistant** (Nintendo Switch 2) — chat panel
+- **Modal: Inference Track** ($5k credits + office visit) — Demucs pipeline

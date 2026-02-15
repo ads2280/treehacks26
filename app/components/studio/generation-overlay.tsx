@@ -17,15 +17,15 @@ const PHASE_ESTIMATES: Record<string, number> = {
 const PHASE_MESSAGES: Record<string, { label: string; sub: string }> = {
   generating: {
     label: "Generating your track",
-    sub: "Composing layers from your prompt...",
+    sub: "Composing from your prompt — takes about a minute...",
+  },
+  loading: {
+    label: "Loading audio",
+    sub: "Rendering waveform...",
   },
   separating: {
     label: "Separating stems",
     sub: "Waveforms will appear as each stem completes...",
-  },
-  loading: {
-    label: "Loading audio",
-    sub: "First stem ready — more on the way...",
   },
 };
 

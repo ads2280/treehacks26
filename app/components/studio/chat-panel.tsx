@@ -1,17 +1,18 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
 import type { UIMessage } from "ai";
-import { Send, User, Loader2 } from "lucide-react";
+import { Send, User, Loader2, ChevronRight, Music, Layers, RefreshCw, Trash2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { DjHead } from "@/components/icons/dj-head";
 import { Button } from "@/components/ui/button";
-import { SMART_SUGGESTIONS, STEM_COLORS } from "@/lib/layertune-types";
-import type { StemType, Project } from "@/lib/layertune-types";
+import { SMART_SUGGESTIONS, STEM_COLORS, ALL_STEM_TYPES, STEM_LABELS, STEM_TYPE_TAGS } from "@/lib/layertune-types";
+import type { StemType, Project, ModelProvider } from "@/lib/layertune-types";
 
 const LAYER_CONTEXT_RE =
   /^\[Editing (.+?) layer \(id: .+?, type: (.+?)\)\]: ([\s\S]+)$/;
@@ -42,11 +43,15 @@ interface ChatPanelProps {
     tags: string,
     instrumental: boolean,
     options?: { negative_tags?: string; lyrics?: string }
-  ) => void;
-  onAddLayer: (stemType: StemType, tags: string) => void;
-  onRegenerateLayer: (layerId: string, description: string) => void;
+  ) => Promise<string>;
+  onAddLayer: (stemType: StemType, tags: string) => Promise<string>;
+  onRegenerateLayer: (layerId: string, description: string) => Promise<string>;
   onRemoveLayer: (layerId: string) => void;
   onSetLyrics: (lyrics: string) => void;
+  modelProvider: ModelProvider;
+  onModelProviderChange: (provider: ModelProvider) => void;
+  agentMode: boolean;
+  onAgentModeChange: (mode: boolean) => void;
 }
 
 export function ChatPanel({
@@ -60,11 +65,32 @@ export function ChatPanel({
   onRegenerateLayer,
   onRemoveLayer,
   onSetLyrics,
+  modelProvider,
+  onModelProviderChange,
+  agentMode,
+  onAgentModeChange,
 }: ChatPanelProps) {
   const projectRef = useRef(project);
   useEffect(() => {
     projectRef.current = project;
   });
+
+  const modelProviderRef = useRef(modelProvider);
+  modelProviderRef.current = modelProvider;
+  const agentModeRef = useRef(agentMode);
+  agentModeRef.current = agentMode;
+
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        body: () => ({
+          modelProvider: modelProviderRef.current,
+          agentMode: agentModeRef.current,
+        }),
+      }),
+    []
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -78,86 +104,97 @@ export function ChatPanel({
   const [isDragOver, setIsDragOver] = useState(false);
   const { messages, sendMessage, addToolOutput, error, regenerate, status } =
     useChat({
-      transport: new DefaultChatTransport({ api: "/api/chat" }),
+      transport,
       sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
       async onToolCall({ toolCall }) {
         const p = projectRef.current;
-        let output = "Done";
+        try {
+          let output = "Done";
 
-        switch (toolCall.toolName) {
-          case "generate_track": {
-            const args = toolCall.input as {
-              topic: string;
-              tags: string;
-              make_instrumental?: boolean;
-              negative_tags?: string;
-              lyrics?: string;
-            };
-            onGenerateTrack(args.topic, args.tags, !!args.make_instrumental, {
-              negative_tags: args.negative_tags,
-              lyrics: args.lyrics,
-            });
-            output = `Started generating track: "${args.topic}" with tags: ${args.tags}`;
-            break;
+          switch (toolCall.toolName) {
+            case "generate_track": {
+              const args = toolCall.input as {
+                topic: string;
+                tags: string;
+                make_instrumental?: boolean;
+                negative_tags?: string;
+                lyrics?: string;
+              };
+              output = await onGenerateTrack(args.topic, args.tags, !!args.make_instrumental, {
+                negative_tags: args.negative_tags,
+                lyrics: args.lyrics,
+              });
+              break;
+            }
+            case "add_layer": {
+              const args = toolCall.input as {
+                stemType: StemType;
+                tags?: string;
+                topic?: string;
+              };
+              output = await onAddLayer(args.stemType, args.tags || args.topic || "");
+              break;
+            }
+            case "regenerate_layer": {
+              const args = toolCall.input as {
+                layerId: string;
+                newDescription: string;
+                tags?: string;
+              };
+              const regenDescription = args.tags
+                ? `${args.newDescription} [tags: ${args.tags}]`
+                : args.newDescription;
+              output = await onRegenerateLayer(args.layerId, regenDescription);
+              break;
+            }
+            case "remove_layer": {
+              const args = toolCall.input as { layerId: string };
+              onRemoveLayer(args.layerId);
+              output = `Removed layer ${args.layerId}`;
+              break;
+            }
+            case "set_lyrics": {
+              const args = toolCall.input as { lyrics: string };
+              onSetLyrics(args.lyrics);
+              output = "Lyrics updated";
+              break;
+            }
+            case "get_composition_state": {
+              const state = {
+                title: p.title,
+                vibePrompt: p.vibePrompt,
+                duration: p.duration,
+                layerCount: p.layers.length,
+                layers: p.layers.map((l) => ({
+                  id: l.id,
+                  name: l.name,
+                  stemType: l.stemType,
+                  hasAudio: !!l.audioUrl,
+                  generationStatus: l.generationStatus || null,
+                  isMuted: l.isMuted,
+                  isSoloed: l.isSoloed,
+                  volume: l.volume,
+                })),
+                cachedStems: p.stemCache.map((s) => s.stemType),
+                hasOriginalClip: !!p.originalClipId,
+              };
+              output = JSON.stringify(state);
+              break;
+            }
           }
-          case "add_layer": {
-            const args = toolCall.input as {
-              stemType: StemType;
-              tags?: string;
-              topic?: string;
-            };
-            onAddLayer(args.stemType, args.tags || args.topic || "");
-            output = `Adding ${args.stemType} layer`;
-            break;
-          }
-          case "regenerate_layer": {
-            const args = toolCall.input as {
-              layerId: string;
-              newDescription: string;
-            };
-            onRegenerateLayer(args.layerId, args.newDescription);
-            output = `Regenerating layer with: "${args.newDescription}"`;
-            break;
-          }
-          case "remove_layer": {
-            const args = toolCall.input as { layerId: string };
-            onRemoveLayer(args.layerId);
-            output = `Removed layer ${args.layerId}`;
-            break;
-          }
-          case "set_lyrics": {
-            const args = toolCall.input as { lyrics: string };
-            onSetLyrics(args.lyrics);
-            output = "Lyrics updated";
-            break;
-          }
-          case "get_composition_state": {
-            const state = {
-              title: p.title,
-              vibePrompt: p.vibePrompt,
-              layerCount: p.layers.length,
-              layers: p.layers.map((l) => ({
-                id: l.id,
-                name: l.name,
-                stemType: l.stemType,
-                isMuted: l.isMuted,
-                isSoloed: l.isSoloed,
-                volume: l.volume,
-              })),
-              cachedStems: p.stemCache.map((s) => s.stemType),
-              hasOriginalClip: !!p.originalClipId,
-            };
-            output = JSON.stringify(state);
-            break;
-          }
+
+          addToolOutput({
+            toolCallId: toolCall.toolCallId,
+            tool: toolCall.toolName,
+            output,
+          });
+        } catch (err) {
+          addToolOutput({
+            toolCallId: toolCall.toolCallId,
+            tool: toolCall.toolName,
+            output: `Error: ${err instanceof Error ? err.message : "Tool execution failed"}`,
+          });
         }
-
-        // Explicitly provide tool result via addToolOutput (AI SDK v6 pattern)
-        addToolOutput({
-          toolCallId: toolCall.toolCallId,
-          tool: toolCall.toolName,
-          output,
-        });
       },
     });
 
@@ -259,10 +296,9 @@ export function ChatPanel({
         )}
 
         {messages.map((msg) => {
-          const textContent = getMessageText(msg);
-          if (!textContent) return null;
-
           if (msg.role === "user") {
+            const textContent = getMessageText(msg);
+            if (!textContent) return null;
             return (
               <UserBubble
                 key={msg.id}
@@ -272,11 +308,14 @@ export function ChatPanel({
           }
 
           if (msg.role === "assistant") {
+            const parts = msg.parts || [];
+            const hasContent = parts.some(
+              (p) => (p.type === "text" && p.text.trim()) || p.type.startsWith("tool-") || p.type === "dynamic-tool"
+            );
+            if (!hasContent) return null;
+
             return (
-              <AssistantBubble
-                key={msg.id}
-                textContent={textContent}
-              />
+              <AssistantMessage key={msg.id} parts={parts} />
             );
           }
 
@@ -301,7 +340,11 @@ export function ChatPanel({
             </div>
             <div className="max-w-[85%]">
               <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
-                <p className="text-sm text-red-300">Something went wrong.</p>
+                <p className="text-sm text-red-300">
+                  {error.message?.includes("rate_limit") || error.message?.includes("Rate limit")
+                    ? "Rate limited — wait a moment and retry."
+                    : error.message || "Something went wrong."}
+                </p>
               </div>
               <button
                 type="button"
@@ -315,67 +358,91 @@ export function ChatPanel({
         )}
       </div>
 
-      {/* Smart Suggestions */}
+      {/* Smart Suggestions — prioritize stems not yet added, allow duplicates */}
       {hasLayers && !isDisabled && (
-        <div className="px-3 pb-2">
-          <div className="flex flex-wrap gap-1.5">
-            {SMART_SUGGESTIONS.map((s) => (
-              <button
-                key={s.stemType}
-                type="button"
-                onClick={() => handleSuggestionClick(s.stemType)}
-                className="px-2.5 py-1 text-xs rounded-full bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 hover:text-white hover:border-white/20 transition-all"
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <StemSuggestions
+          project={project}
+          onAdd={handleSuggestionClick}
+        />
       )}
 
       {/* Input */}
-      <form
-        onSubmit={handleSubmit}
-        className="px-3 py-3 border-t border-white/10"
-      >
-        {targetLayer && (
-          <div className="pb-2">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 border border-white/20 text-xs">
-              <div
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ backgroundColor: STEM_COLORS[targetLayer.stemType] }}
-              />
-              <span className="text-white/80">Editing {targetLayer.name}</span>
-              <button
-                type="button"
-                onClick={() => setTargetLayer(null)}
-                className="text-white/40 hover:text-white ml-0.5 leading-none"
-              >
-                &times;
-              </button>
+      <div className="px-3 py-3 border-t border-white/10">
+        <form onSubmit={handleSubmit}>
+          {targetLayer && (
+            <div className="pb-2">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 border border-white/20 text-xs">
+                <div
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: STEM_COLORS[targetLayer.stemType] }}
+                />
+                <span className="text-white/80">Editing {targetLayer.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setTargetLayer(null)}
+                  className="text-white/40 hover:text-white ml-0.5 leading-none"
+                >
+                  &times;
+                </button>
+              </div>
             </div>
+          )}
+          <div className="flex gap-2">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={getInputPlaceholder(targetLayer, hasLayers)}
+              disabled={isDisabled}
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#c4f567]/50 disabled:opacity-50 transition-colors"
+            />
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!input.trim() || isDisabled}
+              className="bg-[#c4f567] text-black hover:bg-[#b8e557] disabled:opacity-40 px-3"
+            >
+              <Send className="w-4 h-4" />
+            </Button>
           </div>
-        )}
-        <div className="flex gap-2">
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={getInputPlaceholder(targetLayer, hasLayers)}
-            disabled={isDisabled}
-            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#c4f567]/50 disabled:opacity-50 transition-colors"
-          />
-          <Button
-            type="submit"
-            size="sm"
-            disabled={!input.trim() || isDisabled}
-            className="bg-[#c4f567] text-black hover:bg-[#b8e557] disabled:opacity-40 px-3"
+        </form>
+
+        {/* Model / Agent controls — below input like Claude's UI */}
+        <div className="flex items-center justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (agentMode) return;
+              onModelProviderChange(modelProvider === "openai" ? "anthropic" : "openai");
+            }}
+            disabled={agentMode}
+            className="inline-flex items-center gap-1.5 text-xs text-white/50 hover:text-white/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Send className="w-4 h-4" />
-          </Button>
+            {(agentMode || modelProvider === "anthropic") ? (
+              <AnthropicLogo className="w-3.5 h-3.5" />
+            ) : (
+              <OpenAILogo className="w-3.5 h-3.5" />
+            )}
+            <span>
+              {(agentMode || modelProvider === "anthropic") ? "Claude Opus" : "GPT-5"}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onAgentModeChange(!agentMode)}
+            className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full transition-all ${
+              agentMode
+                ? "bg-[#c4f567]/15 text-[#c4f567]"
+                : "text-white/40 hover:text-white/70 hover:bg-white/5"
+            }`}
+          >
+            <span className="text-[10px]">{agentMode ? "●" : "○"}</span>
+            <span>{agentMode ? "Agent" : "Normal"}</span>
+          </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }
@@ -415,17 +482,188 @@ function UserBubble({ textContent }: { textContent: string }) {
   );
 }
 
-function AssistantBubble({ textContent }: { textContent: string }) {
+function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemType: StemType) => void }) {
+  const [showAll, setShowAll] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const existingStems = new Set(project.layers.map((l) => l.stemType));
+  // Show unadded stems first, then already-added ones
+  const quickSuggestions = SMART_SUGGESTIONS.filter((s) => !existingStems.has(s.stemType)).slice(0, 4);
+
+  useEffect(() => {
+    if (!showAll) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setShowAll(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showAll]);
+
+  return (
+    <div className="px-3 pb-2 relative" ref={panelRef}>
+      <div className="flex flex-wrap-reverse justify-start gap-1.5">
+        {quickSuggestions.map((s) => (
+          <button
+            key={s.stemType}
+            type="button"
+            onClick={() => onAdd(s.stemType)}
+            className="px-2.5 py-1 text-xs rounded-full bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 hover:text-white hover:border-white/20 transition-all"
+          >
+            {s.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => setShowAll(!showAll)}
+          className={`px-2.5 py-1 text-xs rounded-full border transition-all ${
+            showAll
+              ? "bg-white/10 border-white/20 text-white/70"
+              : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white/60"
+          }`}
+        >
+          More...
+        </button>
+      </div>
+
+      {showAll && (
+        <div className="absolute bottom-full left-3 right-3 mb-1 bg-[#141414] border border-white/10 rounded-lg p-2 shadow-xl z-20">
+          <p className="text-[10px] text-white/30 uppercase tracking-wider px-1 pb-1.5">All instruments</p>
+          <div className="grid grid-cols-2 gap-1">
+            {ALL_STEM_TYPES.map((stemType) => {
+              const count = project.layers.filter((l) => l.stemType === stemType).length;
+              return (
+                <button
+                  key={stemType}
+                  type="button"
+                  onClick={() => {
+                    onAdd(stemType);
+                    setShowAll(false);
+                  }}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left hover:bg-white/5 transition-colors group"
+                >
+                  <div
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: STEM_COLORS[stemType] }}
+                  />
+                  <span className="text-white/70 group-hover:text-white/90 flex-1">
+                    {STEM_LABELS[stemType]}
+                  </span>
+                  {count > 0 && (
+                    <span className="text-[10px] text-white/25">{count}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnthropicLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <path d="M13.827 3.52h3.603L24 20.48h-3.603l-6.57-16.96zm-7.258 0h3.767L16.906 20.48h-3.674l-1.343-3.461H5.017l-1.344 3.46H0L6.57 3.522zm2.327 5.14L6.22 15.25h5.35L8.896 8.66z" />
+    </svg>
+  );
+}
+
+function OpenAILogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.998 5.998 0 0 0-3.998 2.9 6.042 6.042 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z" />
+    </svg>
+  );
+}
+
+function formatToolArgs(toolName: string, input: Record<string, unknown> | undefined): string {
+  if (!input) return toolName;
+  switch (toolName) {
+    case "generate_track":
+      return `generate_track(${[input.topic && `"${input.topic}"`, input.tags && `tags: "${input.tags}"`].filter(Boolean).join(", ")})`;
+    case "add_layer":
+      return `add_layer(${input.stemType || ""}${input.tags ? `, "${input.tags}"` : ""})`;
+    case "regenerate_layer":
+      return `regenerate_layer(${input.layerId || ""}${input.newDescription ? `, "${input.newDescription}"` : ""})`;
+    case "remove_layer":
+      return `remove_layer(${input.layerId || ""})`;
+    case "set_lyrics":
+      return `set_lyrics(${typeof input.lyrics === "string" ? `"${input.lyrics.slice(0, 40)}${input.lyrics.length > 40 ? "..." : ""}"` : ""})`;
+    case "get_composition_state":
+      return "get_composition_state()";
+    default:
+      return `${toolName}(${JSON.stringify(input).slice(0, 60)})`;
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ToolCallBlock({ part }: { part: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const toolName = part.toolName || part.type?.replace("tool-", "") || "unknown";
+  const isComplete = part.state === "output-available";
+  const isError = part.state === "error";
+  const isActive = !isComplete && !isError;
+  const output = part.output;
+
+  return (
+    <div className="rounded-md border border-white/8 overflow-hidden text-xs">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-white/5 transition-colors text-left"
+      >
+        {isActive ? (
+          <Loader2 className="w-3 h-3 animate-spin text-white/40 flex-shrink-0" />
+        ) : (
+          <ChevronRight className={`w-3 h-3 text-white/30 flex-shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`} />
+        )}
+        <code className={`font-mono truncate ${
+          isError ? "text-red-400/80" : isComplete ? "text-[#c4f567]/70" : "text-white/50"
+        }`}>
+          {formatToolArgs(toolName, part.input)}
+        </code>
+      </button>
+      {expanded && output != null && (
+        <div className="px-2.5 py-2 border-t border-white/5 bg-white/[0.02]">
+          <pre className="font-mono text-[11px] text-white/40 whitespace-pre-wrap break-all max-h-32 overflow-y-auto studio-scroll">
+            {typeof output === "string" ? output : JSON.stringify(output, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function AssistantMessage({ parts }: { parts: any[] }) {
   return (
     <div className="flex gap-2">
       <div className="w-6 h-6 rounded-full bg-[#c4f567]/20 flex items-center justify-center flex-shrink-0 mt-0.5">
         <DjHead className="w-3 h-3 text-[#c4f567]" />
       </div>
-      <div className="max-w-[85%] bg-white/5 border border-white/10 rounded-lg px-3 py-2">
-        <p className="text-sm text-white/80 whitespace-pre-wrap">
-          {textContent}
-        </p>
+      <div className="max-w-[85%] space-y-1.5">
+        {parts.map((part, i) => {
+          if (part.type === "text" && part.text.trim()) {
+            return (
+              <div key={i} className="bg-white/5 border border-white/10 rounded-lg px-3 py-2">
+                <div className="chat-markdown text-sm text-white/80">
+                  <ReactMarkdown>{part.text}</ReactMarkdown>
+                </div>
+              </div>
+            );
+          }
+
+          if (part.type?.startsWith("tool-") || part.type === "dynamic-tool") {
+            return <ToolCallBlock key={part.toolCallId || i} part={part} />;
+          }
+
+          return null;
+        })}
       </div>
     </div>
   );
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
