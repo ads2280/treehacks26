@@ -91,8 +91,20 @@ export async function pollUntilDone(
 
 /**
  * Map Suno stem clip title to our StemType.
+ * Suno titles are formatted as "Song Name - Stem Name" (e.g., "Rainy Reverie - Vocals").
  * Returns undefined if the title doesn't match any known stem.
  */
 export function stemTitleToType(title: string): StemType | undefined {
-  return STEM_NAME_TO_TYPE[title] as StemType | undefined;
+  // Try direct match first
+  const direct = STEM_NAME_TO_TYPE[title] as StemType | undefined;
+  if (direct) return direct;
+
+  // Extract stem name after " - " (Suno format: "Song Title - Stem Name")
+  const dashIdx = title.lastIndexOf(' - ');
+  if (dashIdx !== -1) {
+    const stemPart = title.slice(dashIdx + 3);
+    return STEM_NAME_TO_TYPE[stemPart] as StemType | undefined;
+  }
+
+  return undefined;
 }

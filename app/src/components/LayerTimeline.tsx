@@ -34,23 +34,22 @@ export function LayerTimeline({
   onKeepA,
   onKeepB,
 }: LayerTimelineProps) {
-  if (layers.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <Music size={48} className="text-zinc-700 mx-auto mb-4" />
-          <p className="text-zinc-500 text-lg">Describe your music to get started</p>
-          <p className="text-zinc-600 text-sm mt-1">Type a vibe above and click Generate</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex-1 overflow-auto">
+    <div className="flex-1 overflow-auto relative">
+      {/* Empty state overlay */}
+      {layers.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <div className="text-center">
+            <Music size={48} className="text-zinc-700 mx-auto mb-4" />
+            <p className="text-zinc-500 text-lg">Describe your music to get started</p>
+            <p className="text-zinc-600 text-sm mt-1">Type a vibe above and click Generate</p>
+          </div>
+        </div>
+      )}
+      {/* Always render so the waveform-playlist ref is available on mount */}
       <div className="flex min-h-full">
         {/* Layer overlays (left panel) */}
-        <div className="w-56 flex-shrink-0 border-r border-white/10">
+        <div className="w-44 flex-shrink-0 border-r border-white/5">
           {layers.map((layer) => {
             const hasAB = layer.previousAudioUrl !== null && abState[layer.id] === 'comparing';
             return (

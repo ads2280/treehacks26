@@ -68,6 +68,7 @@ export function useWaveformPlaylist({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const eeRef = useRef<any>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
   const isInitializedRef = useRef(false);
   const exporterInitializedRef = useRef(false);
 
@@ -123,7 +124,7 @@ export function useWaveformPlaylist({
           container: containerRef.current,
           samplesPerPixel: closestSpp,
           mono: true,
-          waveHeight: 70,
+          waveHeight: 55,
           isAutomaticScroll: true,
           timescale: false,
           state: 'cursor',
@@ -145,6 +146,7 @@ export function useWaveformPlaylist({
 
       playlistRef.current = playlist;
       isInitializedRef.current = true;
+      setIsInitialized(true);
 
       // --- Subscribe to playlist events ---
       // Store listener references for cleanup.
@@ -189,6 +191,7 @@ export function useWaveformPlaylist({
       eeRef.current = null;
       isInitializedRef.current = false;
       exporterInitializedRef.current = false;
+      setIsInitialized(false);
       setIsLoaded(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -200,7 +203,7 @@ export function useWaveformPlaylist({
   const trackKey = layerTrackKey(layers);
 
   useEffect(() => {
-    if (!playlistRef.current || !eeRef.current) return;
+    if (!playlistRef.current || !eeRef.current || !isInitialized) return;
 
     const tracksWithAudio = layers.filter((l) => l.audioUrl);
     if (tracksWithAudio.length === 0) {
@@ -223,15 +226,21 @@ export function useWaveformPlaylist({
     const playlist = playlistRef.current;
 
     // Stop playback before reloading
-    if (playlist.isPlaying()) {
-      eeRef.current.emit('stop');
+    try {
+      if (playlist.isPlaying && playlist.isPlaying()) {
+        eeRef.current.emit('stop');
+      }
+    } catch {
+      // isPlaying may throw if no tracks loaded yet
     }
 
-    // waveform-playlist concatenates to this.tracks on load,
-    // so we need to clear first.
-    playlist
-      .clear()
-      .then(() => playlist.load(tracks))
+    // Load tracks. Clear first if there are existing tracks,
+    // otherwise load directly (clear() may hang on empty playlist).
+    const loadTracks = playlist.tracks && playlist.tracks.length > 0
+      ? playlist.clear().then(() => playlist.load(tracks))
+      : playlist.load(tracks);
+
+    loadTracks
       .then(() => {
         setIsLoaded(true);
         if (playlistRef.current) {
@@ -243,7 +252,7 @@ export function useWaveformPlaylist({
         setIsLoaded(false);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackKey]);
+  }, [trackKey, isInitialized]);
 
   // ---------------------------------------------------------------
   // Update per-track volume / mute / solo without full reload

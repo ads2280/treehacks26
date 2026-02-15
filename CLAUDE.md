@@ -231,3 +231,73 @@ layers(id, project_id, name, stem_type, prompt, audio_url, volume, is_muted, is_
 generation_jobs(id, project_id, layer_id, suno_clip_id, status, params, result, error, created_at)
 stems(id, generation_job_id, stem_name, suno_stem_id, audio_url, status, created_at)
 ```
+
+## Context Management: The Sink Pattern
+
+To prevent context explosion, **never let verbose commands print raw output to stdout**. Decouple **Logging** (full detail) from **Reporting** (key insight).
+
+### 1. Quiet Wrapper for Shell Commands
+
+```bash
+# BAD (dumps thousands of lines into context):
+npm run build
+
+# GOOD (The Sink):
+npm run build > .logs/build.log 2>&1
+if [ $? -eq 0 ]; then
+  echo "Build successful. (Logs: .logs/build.log)"
+else
+  echo "Build failed. Last 10 lines:"
+  tail -n 10 .logs/build.log
+fi
+```
+
+### 2. Agent Summary Files for Sub-Agents
+
+- Give each parallel agent a dedicated folder (e.g., `.runs/agent-name/`)
+- Agent writes chain-of-thought to `.runs/agent-name/thought_process.md`
+- Agent MUST produce a final `summary.md` or `status.json` on completion
+- Main workflow ONLY polls for and reads `summary.md`, never raw logs
+
+### 3. LLM-Based Summarizer (Traffic Cop)
+
+For complex output that can't be tailed: redirect to file, send to a cheap/fast model (Haiku) with prompt "Extract only critical error or success metric. Be brief.", print that response.
+
+### Checklist
+1. Identify verbose steps (test runner, build, sub-agents)
+2. Redirect with `> .logs/step_name.log 2>&1`
+3. Produce a small artifact (result.txt) with pass/fail
+4. Display ONLY the artifact
+
+## Debug Log: Running Notes
+
+Maintain a running list of bugs found and how they were debugged. This builds institutional memory so the same mistakes aren't repeated. Jot down the logic chain, not just the fix.
+
+### Bug #1: Suno `/generate` response format mismatch
+- **Symptom**: "No clips returned" error after clicking Generate
+- **Debug chain**: Browser showed toast error → checked network (200 OK) → curl'd API directly → saw response is a flat clip object `{id, status, ...}` not `{clips: [...]}` → code expected `data.clips?.map(...)` which returned undefined
+- **Fix**: Normalize response in `suno.ts:generateTrack()` — if `data.clips` missing, wrap `[data]`
+- **Root cause**: Suno API docs implied array response, actual API returns single object
+
+### Bug #2: Stem separation 500 error — clip not ready
+- **Symptom**: Generate phase succeeded but no layers appeared, no error toast shown
+- **Debug chain**: Checked network requests → `/api/stem` returned 500 → Suno error: "Clip is not ready for stem separation (status: streaming)" → code used `acceptStreaming: true` for main clip polling, moved to stem call too early
+- **Fix**: Changed `acceptStreaming: false` in all three generation flows (handleGenerate, handleAddLayer, handleRegenerate) so we wait for `complete` before calling `/stem`
+- **Root cause**: Comment in code was wrong — assumed stem only needs clip ID, but Suno requires full completion
+
+### Bug #3: Stem response format (preventive)
+- **Symptom**: Not yet hit, but same pattern as Bug #1
+- **Fix**: Added normalization in `suno.ts:stemClip()` to handle flat object or array responses
+
+### Bug #4: All layers show as "FX" — stem name mapping failure
+- **Symptom**: After generation, all 12 layers display as "FX" with purple dots instead of proper names (Vocals, Drums, Bass, etc.)
+- **Debug chain**: Saw all layers labeled "FX" → checked `STEM_NAME_TO_TYPE` mapping → maps "Vocals" but Suno returns "Rainy Reverie - Vocals" (title includes song name) → direct lookup fails → falls back to 'fx' default
+- **Fix**: Updated `stemTitleToType()` in `api.ts` to extract stem name after last " - " separator
+- **Root cause**: Suno stem clip titles are formatted as "Song Name - Stem Name", not just "Stem Name"
+
+### Bug #5: Waveforms not rendering — conditional ref + mount-only effect race condition
+- **Symptom**: After generation, layers appear with correct names/colors but waveform area is empty (black), duration shows 0:00
+- **Debug chain**: Added console.log to useWaveformPlaylist.ts → init effect never fires (no "init:" logs) → trackLoad effect fires but playlist/ee/isInitialized all false → containerRef.current is null at mount time → early return, never retries ([] deps)
+- **Root cause**: `LayerTimeline` conditionally rendered the playlist container div — only when `layers.length > 0`. On initial mount, layers is empty, so the `<div ref={playlistContainerRef}>` doesn't exist. The init `useEffect` with `[]` deps runs once, sees null ref, returns early, and never retries.
+- **Fix**: Restructured `LayerTimeline` to always render the playlist container div in the DOM. Empty state message is now an absolute-positioned overlay on top instead of a replacement. This ensures the ref is always available when the mount effect fires.
+- **Lesson**: Never conditionally render a container element that's used as a ref for a mount-only (`[]` deps) useEffect. Either always render it, or use a callback ref that triggers state changes.

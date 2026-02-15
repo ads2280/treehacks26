@@ -29,6 +29,7 @@ body {
 
 .playlist-container canvas {
   background: transparent !important;
+  opacity: 0.35;
 }
 
 .playlist-container .cursor {

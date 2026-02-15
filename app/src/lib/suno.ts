@@ -73,7 +73,18 @@ export async function generateTrack(
     headers: headers(),
     body: JSON.stringify(params),
   });
-  return res.json();
+  const data = await res.json();
+
+  // Suno API returns a flat clip object, normalize to { clips: [...] }
+  if (data && !data.clips) {
+    return {
+      id: data.id,
+      clips: [data],
+      metadata: data.metadata || {},
+      created_at: data.created_at,
+    };
+  }
+  return data;
 }
 
 export async function getClips(ids: string[]): Promise<SunoClip[]> {
@@ -90,7 +101,16 @@ export async function stemClip(clipId: string): Promise<SunoStemResponse> {
     headers: headers(),
     body: JSON.stringify({ clip_id: clipId }),
   });
-  return res.json();
+  const data = await res.json();
+
+  // Normalize: if API returns a flat object or array instead of { clips: [...] }
+  if (data && !data.clips) {
+    if (Array.isArray(data)) {
+      return { id: clipId, clips: data };
+    }
+    return { id: data.id || clipId, clips: [data] };
+  }
+  return data;
 }
 
 /**

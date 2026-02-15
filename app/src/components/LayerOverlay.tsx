@@ -38,31 +38,31 @@ export function LayerOverlay({
 
   return (
     <div
-      className={`border-b border-white/10 px-3 py-2 flex flex-col justify-between bg-zinc-900/50 ${
-        hasABComparison ? 'h-[110px]' : 'h-[80px]'
+      className={`border-b border-white/5 px-2 flex flex-col justify-center bg-zinc-900/50 ${
+        hasABComparison ? 'h-[110px]' : 'h-[55px]'
       }`}
     >
-      {/* Top row: name + stem color dot */}
-      <div className="flex items-center gap-2">
-        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-        <span className="text-xs font-medium text-zinc-200 truncate">{displayName}</span>
+      {/* Name row */}
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+        <span className="text-[11px] font-medium text-zinc-200 truncate">{displayName}</span>
       </div>
 
       {/* Controls row */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0.5">
         <button
           onClick={onToggleMute}
-          className={`p-1 rounded transition-colors ${layer.isMuted ? 'text-red-400 bg-red-400/10' : 'text-zinc-500 hover:text-zinc-300'}`}
+          className={`p-0.5 rounded transition-colors ${layer.isMuted ? 'text-red-400 bg-red-400/10' : 'text-zinc-500 hover:text-zinc-300'}`}
           title="Mute"
         >
-          {layer.isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+          {layer.isMuted ? <VolumeX size={12} /> : <Volume2 size={12} />}
         </button>
         <button
           onClick={onToggleSolo}
-          className={`p-1 rounded transition-colors ${layer.isSoloed ? 'text-yellow-400 bg-yellow-400/10' : 'text-zinc-500 hover:text-zinc-300'}`}
+          className={`p-0.5 rounded transition-colors ${layer.isSoloed ? 'text-yellow-400 bg-yellow-400/10' : 'text-zinc-500 hover:text-zinc-300'}`}
           title="Solo"
         >
-          <Headphones size={14} />
+          <Headphones size={12} />
         </button>
         <input
           type="range"
@@ -71,14 +71,14 @@ export function LayerOverlay({
           step={0.01}
           value={layer.volume}
           onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-          className="w-16 h-1 accent-purple-500"
+          className="w-12 h-1 accent-purple-500"
           aria-label={`Volume for ${displayName}`}
         />
-        <button onClick={onRegenerate} className="p-1 rounded text-zinc-500 hover:text-purple-400 transition-colors" title="Regenerate">
-          <RefreshCw size={14} />
+        <button onClick={onRegenerate} className="p-0.5 rounded text-zinc-500 hover:text-purple-400 transition-colors" title="Regenerate">
+          <RefreshCw size={12} />
         </button>
-        <button onClick={onDelete} className="p-1 rounded text-zinc-500 hover:text-red-400 transition-colors" title="Delete">
-          <Trash2 size={14} />
+        <button onClick={onDelete} className="p-0.5 rounded text-zinc-500 hover:text-red-400 transition-colors" title="Delete">
+          <Trash2 size={12} />
         </button>
       </div>
 

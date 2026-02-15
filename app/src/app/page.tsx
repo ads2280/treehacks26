@@ -221,10 +221,10 @@ export default function Home() {
 
         setOriginalClipId(clipIds[0]);
 
-        // Step 2: Poll for clip completion (accept 'streaming' for the main clip
-        // since we only need the clip ID for stem separation, not the audio_url)
+        // Step 2: Poll for clip completion (require 'complete' because
+        // Suno API requires clip to be fully complete before stem separation)
         await pollUntilDone(clipIds, {
-          acceptStreaming: true,
+          acceptStreaming: false,
           intervalMs: POLL_INTERVALS.clip,
           timeoutMs: 180000, // 3 min timeout for generation
         });
@@ -301,9 +301,9 @@ export default function Home() {
         const clipId = data.clips?.[0]?.id;
         if (!clipId) throw new Error('No clip returned');
 
-        // Poll for clip completion
+        // Poll for clip completion (require complete for stem separation)
         await pollUntilDone([clipId], {
-          acceptStreaming: true,
+          acceptStreaming: false,
           intervalMs: POLL_INTERVALS.clip,
           timeoutMs: 180000,
         });
@@ -388,9 +388,9 @@ export default function Home() {
         const clipId = data.clips?.[0]?.id;
         if (!clipId) throw new Error('No clip returned');
 
-        // Poll clip until ready (accept streaming since we just need ID for stem)
+        // Poll clip until fully complete (required before stem separation)
         await pollUntilDone([clipId], {
-          acceptStreaming: true,
+          acceptStreaming: false,
           intervalMs: POLL_INTERVALS.clip,
           timeoutMs: 180000,
         });
