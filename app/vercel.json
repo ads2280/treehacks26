@@ -1,0 +1,21 @@
+{
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "functions": {
+    "app/api/chat/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/generate/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/stem/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/clips/route.ts": {
+      "maxDuration": 10
+    },
+    "app/api/audio-proxy/route.ts": {
+      "maxDuration": 10
+    }
+  }
+}
