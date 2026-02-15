@@ -15,7 +15,7 @@ import { GenerationOverlay } from "@/components/studio/generation-overlay";
 import { StudioLanding } from "@/components/studio/studio-landing";
 import { generate, stem, stemDemucs, pollUntilDone, pollStemsProgressively, pollForTargetStem, proxyAudioUrl, stemTitleToType } from "@/lib/api";
 import { STEM_TYPE_TAGS, POLL_INTERVALS, STEM_LABELS } from "@/lib/layertune-types";
-import type { GenerationPhase, StemType, CachedStem, ModelProvider } from "@/lib/layertune-types";
+import type { GenerationPhase, StemType, ModelProvider } from "@/lib/layertune-types";
 
 function stemTypeDisplayName(stemType: StemType): string {
   return stemType.charAt(0).toUpperCase() + stemType.slice(1).replace("_", " ");
@@ -44,8 +44,10 @@ function StudioApp() {
     setABState,
     startABComparison,
     pushVersion,
-    switchToVersion,
+    navigateVersionOlder,
+    navigateVersionNewer,
     setStemCache,
+    appendStemCache,
   } = useProject();
 
   const { addToast } = useToasts();
@@ -238,18 +240,23 @@ function StudioApp() {
           generationJobId: null,
           projectId: project.id,
           versions: [],
+          versionCursor: 0,
         });
         addToast("Track ready! Separating stems in background...", "success");
 
         setGenerationPhase("separating");
 
         // Phase 3: Parallel stem separation — Demucs (fast, 3 stems) + Suno (12 stems)
+        // Strategy: await Demucs only (~20s), let Suno poll in background
         const deliveredStems = new Set<StemType>();
-        const cachedStems: CachedStem[] = [];
         let firstStemReplaced = false;
+        let resolveFirstStem: (() => void) | null = null;
+        const firstStemPromise = new Promise<void>((resolve) => { resolveFirstStem = resolve; });
 
         const deliverStem = (stemType: StemType, audioUrl: string, stemClipId: string) => {
           if (deliveredStems.has(stemType)) return;
+          // Validate audioUrl before caching — proxyAudioUrl("") creates truthy but broken URLs
+          if (!audioUrl || audioUrl === "/api/audio-proxy?url=") return;
           deliveredStems.add(stemType);
 
           if (!firstStemReplaced && stemType === "drums") {
@@ -262,16 +269,20 @@ function StudioApp() {
               sunoClipId: stemClipId,
             });
           } else {
-            cachedStems.push({
+            appendStemCache([{
               stemType,
               audioUrl,
               sunoClipId: stemClipId,
               fromClipId: clipIds[0],
               createdAt: new Date().toISOString(),
-            });
+            }]);
           }
+          // Signal that at least one stem arrived
+          resolveFirstStem?.();
+          resolveFirstStem = null;
         };
 
+        // Fire Demucs (fast path, ~20s for 3 stems)
         const demucsPromise = stemDemucs(completedClip.audio_url, clipIds[0])
           .then((r) => {
             for (const s of r.stems) {
@@ -280,34 +291,70 @@ function StudioApp() {
           })
           .catch((err) => console.warn("Demucs failed (falling back to Suno):", err));
 
-        const sunoPromise = (async () => {
-          const stemData = await stem(clipIds[0]);
-          const stemClipIds = stemData.clips?.map((c) => c.id) || [];
-          if (stemClipIds.length === 0) throw new Error("No stem clips returned");
+        // Fire Suno /stem in parallel (don't await the full polling)
+        const sunoInitPromise = stem(clipIds[0]).catch((err) => {
+          console.warn("Suno stem init failed:", err);
+          return null;
+        });
 
-          await pollStemsProgressively(
-            stemClipIds,
-            (stemClip) => {
-              if (!stemClip.audio_url) return;
-              const stemType = (stemTitleToType(stemClip.title) || "fx") as StemType;
-              deliverStem(stemType, proxyAudioUrl(stemClip.audio_url), stemClip.id);
-            },
-            { intervalMs: POLL_INTERVALS.stem, timeoutMs: 300000 }
-          );
-        })();
+        // Wait for Demucs only (fast path, ~20s)
+        await demucsPromise;
 
-        await Promise.allSettled([demucsPromise, sunoPromise]);
+        // If Demucs failed, wait for at least the first Suno stem
+        if (deliveredStems.size === 0) {
+          const sunoData = await sunoInitPromise;
+          if (sunoData) {
+            const stemClipIds = sunoData.clips?.map((c) => c.id) || [];
+            if (stemClipIds.length > 0) {
+              // Start Suno polling and wait for first stem only
+              pollStemsProgressively(
+                stemClipIds,
+                (stemClip) => {
+                  if (!stemClip.audio_url) return;
+                  const stemType = (stemTitleToType(stemClip.title) || "fx") as StemType;
+                  deliverStem(stemType, proxyAudioUrl(stemClip.audio_url), stemClip.id);
+                },
+                { intervalMs: POLL_INTERVALS.stem, timeoutMs: 300000 }
+              ).catch((err) => console.warn("Suno stems failed:", err));
 
-        if (!firstStemReplaced && cachedStems.length === 0) {
-          // Stems failed but full mix is still playing — graceful degradation
-          addToast("Stem separation failed, but your track is playing.", "info");
+              // Wait for first stem or timeout
+              await Promise.race([
+                firstStemPromise,
+                new Promise<void>((_, reject) =>
+                  setTimeout(() => reject(new Error("No stems available after 60s")), 60000)
+                ),
+              ]).catch(() => {});
+            }
+          }
+        } else {
+          // Demucs succeeded — start Suno in background for remaining stems
+          sunoInitPromise.then((sunoData) => {
+            if (!sunoData) return;
+            const stemClipIds = sunoData.clips?.map((c) => c.id) || [];
+            if (stemClipIds.length === 0) return;
+
+            pollStemsProgressively(
+              stemClipIds,
+              (stemClip) => {
+                if (!stemClip.audio_url) return;
+                const stemType = (stemTitleToType(stemClip.title) || "fx") as StemType;
+                deliverStem(stemType, proxyAudioUrl(stemClip.audio_url), stemClip.id);
+              },
+              { intervalMs: POLL_INTERVALS.stem, timeoutMs: 300000 }
+            ).catch((err) => console.warn("Suno background stems failed:", err));
+          });
         }
 
-        setStemCache(cachedStems);
+        if (deliveredStems.size === 0) {
+          addToast("Stem separation failed, but your track is playing.", "info");
+        } else {
+          addToast("Stems ready! More loading in background...", "success");
+        }
+
         setGenerationPhase("complete");
-        addToast("All stems ready! Add more layers to build your track.", "success");
-        setTimeout(() => setGenerationPhase("idle"), 2000);
-        return { cachedStemTypes: cachedStems.map((s) => s.stemType) };
+        setTimeout(() => setGenerationPhase("idle"), 500);
+        const cachedTypes = Array.from(deliveredStems).filter((s) => s !== "drums");
+        return { cachedStemTypes: cachedTypes };
       } catch (error) {
         setGenerationPhase("error");
         addToast(
@@ -318,7 +365,7 @@ function StudioApp() {
         return null;
       }
     },
-    [addLayer, updateLayer, setVibePrompt, setOriginalClipId, setStemCache, addToast, project.id]
+    [addLayer, updateLayer, setVibePrompt, setOriginalClipId, appendStemCache, addToast, project.id]
   );
 
   const handleAddLayer = useCallback(
@@ -329,9 +376,15 @@ function StudioApp() {
       }
 
       // Try cache first for instant layer add (read state directly — see Bug #6)
-      const cached = project.stemCache.find((s) => s.stemType === targetStemType);
-      if (cached?.audioUrl) {
-        const remaining = project.stemCache.filter((s) => s !== cached);
+      // Validate audioUrl to skip broken entries from incomplete background polling
+      const cached = project.stemCache.find(
+        (s) => s.stemType === targetStemType && s.audioUrl && s.audioUrl !== "/api/audio-proxy?url="
+      );
+      if (cached) {
+        // Remove consumed entry + clean up any invalid cache entries
+        const remaining = project.stemCache.filter(
+          (s) => s !== cached && s.audioUrl && s.audioUrl !== "/api/audio-proxy?url="
+        );
         setStemCache(remaining);
         addLayer({
           name: stemTypeDisplayName(targetStemType),
@@ -347,6 +400,7 @@ function StudioApp() {
           generationJobId: null,
           projectId: project.id,
           versions: [],
+          versionCursor: 0,
         });
         addToast("Layer added from cache!", "success");
         const remainingTypes = remaining.map((s) => s.stemType).join(", ");
@@ -382,8 +436,8 @@ function StudioApp() {
         if (!clipId) throw new Error("No clip returned");
 
         await pollUntilDone([clipId], {
-          // Layer add can use streaming-ready audio to reduce wait time.
-          acceptStreaming: true,
+          // Stem separation requires status=complete (Bug #2)
+          acceptStreaming: false,
           intervalMs: Math.min(POLL_INTERVALS.clip, 2500),
           timeoutMs: 180000,
         });
@@ -451,8 +505,8 @@ function StudioApp() {
         if (!clipId) throw new Error("No clip returned");
 
         await pollUntilDone([clipId], {
-          // Regeneration can use streaming-ready audio to reduce wait time.
-          acceptStreaming: true,
+          // Stem separation requires status=complete (Bug #2)
+          acceptStreaming: false,
           intervalMs: Math.min(POLL_INTERVALS.clip, 2500),
           timeoutMs: 180000,
         });
@@ -539,7 +593,8 @@ function StudioApp() {
         if (!clipId) throw new Error("No clip returned");
 
         await pollUntilDone([clipId], {
-          acceptStreaming: true,
+          // Stem separation requires status=complete (Bug #2)
+          acceptStreaming: false,
           intervalMs: Math.min(POLL_INTERVALS.clip, 2500),
           timeoutMs: 180000,
         });
@@ -556,6 +611,7 @@ function StudioApp() {
 
         updateLayer(vocalLayerId, {
           audioUrl: proxyAudioUrl(matchingStem.audio_url),
+          prompt: lyricsText,
           sunoClipId: matchingStem.id,
           generationStatus: undefined,
         });
@@ -626,7 +682,8 @@ function StudioApp() {
       if (agentModeRef.current) {
         const result = await handleGenerate(topic, instrumental, genOpts);
         if (!result) return "Track generation failed. Check error details and try again with different tags.";
-        return `Track generated and playing. Stems separated. Cached stems available: ${result.cachedStemTypes.join(", ")}. Call add_layer with any stem type — cached stems load instantly.`;
+        const cachedList = result.cachedStemTypes.join(", ") || "none yet";
+        return `Track generated and playing. Cached stems ready NOW: ${cachedList}. These load instantly via add_layer. Other stems (guitar, keyboard, synth, etc.) are still separating in background — call get_composition_state to check what's available before adding uncached stems.`;
       }
 
       handleGenerate(topic, instrumental, genOpts);
@@ -744,7 +801,8 @@ function StudioApp() {
                 onDelete={(id) => setDeleteLayerId(id)}
                 onSelectAB={handleSelectABVersion}
                 onKeepVersion={handleKeepVersion}
-                onSwitchVersion={switchToVersion}
+                onNavigateOlder={navigateVersionOlder}
+                onNavigateNewer={navigateVersionNewer}
               />
             )}
             <WaveformDisplay

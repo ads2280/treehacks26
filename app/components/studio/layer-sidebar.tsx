@@ -88,7 +88,8 @@ interface LayerSidebarProps {
   onDelete: (id: string) => void;
   onSelectAB: (id: string, version: "a" | "b") => void;
   onKeepVersion: (id: string, version: "a" | "b") => void;
-  onSwitchVersion: (id: string, versionIndex: number) => void;
+  onNavigateOlder: (id: string) => void;
+  onNavigateNewer: (id: string) => void;
 }
 
 export function LayerSidebar({
@@ -101,7 +102,8 @@ export function LayerSidebar({
   onDelete,
   onSelectAB,
   onKeepVersion,
-  onSwitchVersion,
+  onNavigateOlder,
+  onNavigateNewer,
 }: LayerSidebarProps) {
   return (
     <div className="w-56 flex-shrink-0 border-r border-white/10 overflow-y-auto studio-scroll">
@@ -275,9 +277,10 @@ export function LayerSidebar({
             {hasVersions && !isComparing && !isLayerGenerating && (
               <div className="flex items-center gap-1 px-3 pb-1.5">
                 <button
-                  onClick={() => onSwitchVersion(layer.id, 0)}
-                  className="p-0.5 rounded text-white/40 hover:text-white/70 transition-colors"
-                  title="Switch to previous version"
+                  onClick={() => onNavigateOlder(layer.id)}
+                  disabled={(layer.versionCursor ?? 0) >= (layer.versions?.length ?? 0)}
+                  className="p-0.5 rounded text-white/40 hover:text-white/70 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Switch to older version"
                 >
                   <ChevronLeft className="w-3 h-3" />
                 </button>
@@ -285,10 +288,10 @@ export function LayerSidebar({
                   {totalVersions} versions
                 </span>
                 <button
-                  onClick={() => onSwitchVersion(layer.id, Math.min(1, (layer.versions?.length ?? 1) - 1))}
-                  disabled={(layer.versions?.length ?? 0) < 2}
+                  onClick={() => onNavigateNewer(layer.id)}
+                  disabled={(layer.versionCursor ?? 0) <= 0}
                   className="p-0.5 rounded text-white/40 hover:text-white/70 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  title="Switch to next version"
+                  title="Switch to newer version"
                 >
                   <ChevronRight className="w-3 h-3" />
                 </button>

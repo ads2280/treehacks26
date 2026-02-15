@@ -179,7 +179,9 @@ export function ChatPanel({
                   isSoloed: l.isSoloed,
                   volume: l.volume,
                 })),
-                cachedStems: p.stemCache.map((s) => s.stemType),
+                cachedStems: p.stemCache
+                  .filter((s) => s.audioUrl && s.audioUrl !== "/api/audio-proxy?url=")
+                  .map((s) => s.stemType),
                 hasOriginalClip: !!p.originalClipId,
               };
               output = JSON.stringify(state);
@@ -491,8 +493,18 @@ function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemTyp
   const panelRef = useRef<HTMLDivElement>(null);
 
   const existingStems = new Set(project.layers.map((l) => l.stemType));
-  // Show unadded stems first, then already-added ones
-  const quickSuggestions = SMART_SUGGESTIONS.filter((s) => !existingStems.has(s.stemType)).slice(0, 4);
+  const cachedStems = new Set(
+    project.stemCache
+      .filter((s) => s.audioUrl && s.audioUrl !== "/api/audio-proxy?url=")
+      .map((s) => s.stemType)
+  );
+
+  // Prioritize cached stems in quick suggestions — they load instantly
+  const available = SMART_SUGGESTIONS.filter((s) => !existingStems.has(s.stemType));
+  const cachedFirst = [
+    ...available.filter((s) => cachedStems.has(s.stemType)),
+    ...available.filter((s) => !cachedStems.has(s.stemType)),
+  ].slice(0, 4);
 
   useEffect(() => {
     if (!showAll) return;
@@ -508,16 +520,23 @@ function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemTyp
   return (
     <div className="px-3 pb-2 relative" ref={panelRef}>
       <div className="flex flex-wrap-reverse justify-start gap-1.5">
-        {quickSuggestions.map((s) => (
-          <button
-            key={s.stemType}
-            type="button"
-            onClick={() => onAdd(s.stemType)}
-            className="px-2.5 py-1 text-xs rounded-full bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 hover:text-white hover:border-white/20 transition-all"
-          >
-            {s.label}
-          </button>
-        ))}
+        {cachedFirst.map((s) => {
+          const isCached = cachedStems.has(s.stemType);
+          return (
+            <button
+              key={s.stemType}
+              type="button"
+              onClick={() => onAdd(s.stemType)}
+              className={`px-2.5 py-1 text-xs rounded-full border transition-all ${
+                isCached
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400/80 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/40"
+                  : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white hover:border-white/20"
+              }`}
+            >
+              {s.label}
+            </button>
+          );
+        })}
         <button
           type="button"
           onClick={() => setShowAll(!showAll)}
@@ -537,6 +556,7 @@ function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemTyp
           <div className="grid grid-cols-2 gap-1">
             {ALL_STEM_TYPES.map((stemType) => {
               const count = project.layers.filter((l) => l.stemType === stemType).length;
+              const isCached = cachedStems.has(stemType);
               return (
                 <button
                   key={stemType}
@@ -545,13 +565,19 @@ function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemTyp
                     onAdd(stemType);
                     setShowAll(false);
                   }}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left hover:bg-white/5 transition-colors group"
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors group ${
+                    isCached ? "hover:bg-emerald-500/10" : "hover:bg-white/5"
+                  }`}
                 >
                   <div
                     className="w-2 h-2 rounded-full flex-shrink-0"
                     style={{ backgroundColor: STEM_COLORS[stemType] }}
                   />
-                  <span className="text-white/70 group-hover:text-white/90 flex-1">
+                  <span className={`flex-1 ${
+                    isCached
+                      ? "text-emerald-400/70 group-hover:text-emerald-300"
+                      : "text-white/70 group-hover:text-white/90"
+                  }`}>
                     {STEM_LABELS[stemType]}
                   </span>
                   {count > 0 && (

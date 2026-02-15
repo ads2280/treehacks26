@@ -34,8 +34,9 @@ function loadProject(): Project {
       project.layers = project.layers
         .filter((l) => l.audioUrl || !l.generationStatus)
         .map((l) => {
-          // Migrate: default versions array for layers from before version history
-          const withVersions = l.versions ? l : { ...l, versions: [] as LayerVersion[] };
+          // Migrate: default versions/versionCursor for layers from before version history
+          const withVersions = l.versions ? l : { ...l, versions: [] as LayerVersion[], versionCursor: 0 };
+          if (withVersions.versionCursor == null) withVersions.versionCursor = 0;
           if (withVersions.generationStatus) {
             const { generationStatus: __status, ...clean } = withVersions; // eslint-disable-line @typescript-eslint/no-unused-vars
             return clean as typeof l;
@@ -256,13 +257,32 @@ export function useProject() {
     [updateProject]
   );
 
+  const appendStemCache = useCallback(
+    (newStems: CachedStem[]) => {
+      setProject((prev) => {
+        const existing = new Set(prev.stemCache.map((s) => s.stemType));
+        // Filter: dedupe by stemType + reject empty/broken audioUrls
+        const unique = newStems.filter(
+          (s) => !existing.has(s.stemType) && s.audioUrl && s.audioUrl !== "/api/audio-proxy?url="
+        );
+        if (unique.length === 0) return prev;
+        return {
+          ...prev,
+          stemCache: [...prev.stemCache, ...unique],
+          updatedAt: new Date().toISOString(),
+        };
+      });
+    },
+    []
+  );
+
   const pushVersion = useCallback(
     (layerId: string, version: LayerVersion) => {
       setProject((prev) => ({
         ...prev,
         layers: prev.layers.map((l) =>
           l.id === layerId
-            ? { ...l, versions: [version, ...(l.versions || [])] }
+            ? { ...l, versions: [version, ...(l.versions || [])], versionCursor: 0 }
             : l
         ),
         updatedAt: new Date().toISOString(),
@@ -271,23 +291,24 @@ export function useProject() {
     []
   );
 
-  const switchToVersion = useCallback(
-    (layerId: string, versionIndex: number) => {
+  const navigateVersionOlder = useCallback(
+    (layerId: string) => {
       setProject((prev) => {
         const layer = prev.layers.find((l) => l.id === layerId);
-        if (!layer || !layer.versions || versionIndex < 0 || versionIndex >= layer.versions.length) {
-          return prev;
-        }
-        const target = layer.versions[versionIndex];
-        // Move current audioUrl into the version slot, put target as active
+        if (!layer?.versions?.length) return prev;
+        const cursor = layer.versionCursor ?? 0;
+        if (cursor >= layer.versions.length) return prev;
+        if (!layer.audioUrl) return prev;
+
+        const target = layer.versions[cursor];
         const currentVersion: LayerVersion = {
-          audioUrl: layer.audioUrl!,
+          audioUrl: layer.audioUrl,
           sunoClipId: layer.sunoClipId,
           prompt: layer.prompt,
           createdAt: new Date().toISOString(),
         };
         const newVersions = [...layer.versions];
-        newVersions[versionIndex] = currentVersion;
+        newVersions[cursor] = currentVersion;
         return {
           ...prev,
           layers: prev.layers.map((l) =>
@@ -298,6 +319,47 @@ export function useProject() {
                   sunoClipId: target.sunoClipId,
                   prompt: target.prompt,
                   versions: newVersions,
+                  versionCursor: cursor + 1,
+                }
+              : l
+          ),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+    },
+    []
+  );
+
+  const navigateVersionNewer = useCallback(
+    (layerId: string) => {
+      setProject((prev) => {
+        const layer = prev.layers.find((l) => l.id === layerId);
+        if (!layer?.versions?.length) return prev;
+        const cursor = layer.versionCursor ?? 0;
+        if (cursor <= 0) return prev;
+        if (!layer.audioUrl) return prev;
+
+        const newCursor = cursor - 1;
+        const target = layer.versions[newCursor];
+        const currentVersion: LayerVersion = {
+          audioUrl: layer.audioUrl,
+          sunoClipId: layer.sunoClipId,
+          prompt: layer.prompt,
+          createdAt: new Date().toISOString(),
+        };
+        const newVersions = [...layer.versions];
+        newVersions[newCursor] = currentVersion;
+        return {
+          ...prev,
+          layers: prev.layers.map((l) =>
+            l.id === layerId
+              ? {
+                  ...l,
+                  audioUrl: target.audioUrl,
+                  sunoClipId: target.sunoClipId,
+                  prompt: target.prompt,
+                  versions: newVersions,
+                  versionCursor: newCursor,
                 }
               : l
           ),
@@ -350,8 +412,10 @@ export function useProject() {
     keepA,
     keepB,
     pushVersion,
-    switchToVersion,
+    navigateVersionOlder,
+    navigateVersionNewer,
     setStemCache,
+    appendStemCache,
     consumeCachedStem,
   };
 }
