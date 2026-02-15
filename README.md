@@ -18,15 +18,7 @@
 
 ---
 
-## The Problem: The Notes App Graveyard
-
-Every AI music tool today works the same way: type a prompt, get a song, feel nothing.
-
-The result is a **graveyard of generated tracks nobody cares about** — the musical equivalent of abandoned notes apps. You didn't *make* anything. You typed a sentence and an API returned a file. There's no ownership, no creative process, no reason to come back.
-
-The problem isn't the AI. It's the workflow. When you hand someone a finished song, you skip the part that makes music feel like *yours* — the 50 micro-decisions about which drums hit harder, whether the bass should be darker, if the vocals need more grit.
-
-**ProduceThing gives those decisions back.** You start with a vibe. We split it into stems. You add, remove, regenerate, and mix individual layers through natural language — or let an autonomous agent compose for you while you watch it think. Every track is built through a chain of creative choices, not a single prompt.
+Most AI music tools generate songs. ProduceThing helps you write better ones. It coaches lyrics in real time, then an autonomous agent arranges and refines them into a finished track.
 
 ---
 
