@@ -79,6 +79,7 @@ export function useWaveformPlaylist({
   // Initialize the playlist instance once on mount
   useEffect(() => {
     if (!containerRef.current || isInitializedRef.current) return;
+    const container = containerRef.current;
 
     let cancelled = false;
 
@@ -170,8 +171,8 @@ export function useWaveformPlaylist({
         if (onSelectListener) ee.off("select", onSelectListener);
       }
 
-      if (containerRef.current) {
-        containerRef.current.innerHTML = "";
+      if (container) {
+        container.innerHTML = "";
       }
       playlistRef.current = null;
       eeRef.current = null;

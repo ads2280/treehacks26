@@ -31,7 +31,7 @@ export function RegenerateModal({
 
   useEffect(() => {
     if (open) {
-      setPrompt("");
+      setPrompt(""); // eslint-disable-line react-hooks/set-state-in-effect -- reset on dialog open
       // Auto-focus after dialog animation
       const t = setTimeout(() => inputRef.current?.focus(), 100);
       return () => clearTimeout(t);

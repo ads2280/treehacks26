@@ -11,7 +11,8 @@ import {
 } from "@/lib/lyrics-assistant";
 import { Annotations, LyricsLLMInsights, LyricDoc } from "@/lib/lyrics-types";
 
-const ASSISTANT_MODEL = process.env.LYRICS_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
+const ASSISTANT_MODEL =
+  process.env.LYRICS_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
 
 interface RequestBody {
   doc?: LyricDoc;
@@ -96,26 +97,32 @@ async function generateInsights(
   }
 
   return {
-    theme: typeof parsed.theme === "string" && parsed.theme.trim()
-      ? parsed.theme.trim()
-      : "Untitled lyric idea",
-    context: typeof parsed.context === "string" && parsed.context.trim()
-      ? parsed.context.trim()
-      : "Refine your narrative arc by clarifying who is speaking and to whom.",
+    theme:
+      typeof parsed.theme === "string" && parsed.theme.trim()
+        ? parsed.theme.trim()
+        : "Untitled lyric idea",
+    context:
+      typeof parsed.context === "string" && parsed.context.trim()
+        ? parsed.context.trim()
+        : "Refine your narrative arc by clarifying who is speaking and to whom.",
     rhymeTargets: Array.isArray(parsed.rhymeTargets)
       ? parsed.rhymeTargets
           .slice(0, 4)
           .map((target) => ({
             target: typeof target.target === "string" ? target.target : "",
             rhymes: Array.isArray(target.rhymes)
-              ? target.rhymes.filter((word): word is string => typeof word === "string").slice(0, 5)
+              ? target.rhymes
+                  .filter((word): word is string => typeof word === "string")
+                  .slice(0, 5)
               : [],
             rationale: typeof target.rationale === "string" ? target.rationale : undefined,
           }))
           .filter((target) => target.target)
       : [],
     writingTips: Array.isArray(parsed.writingTips)
-      ? parsed.writingTips.filter((tip): tip is string => typeof tip === "string").slice(0, 3)
+      ? parsed.writingTips
+          .filter((tip): tip is string => typeof tip === "string")
+          .slice(0, 3)
       : [],
   };
 }
@@ -134,6 +141,16 @@ export async function POST(request: Request) {
       { error: "Missing or invalid 'doc.lines' - expected array of { id, text }" },
       { status: 400 },
     );
+  }
+
+  for (let i = 0; i < body.doc.lines.length; i += 1) {
+    const line = body.doc.lines[i];
+    if (!line || typeof line.id !== "string" || typeof line.text !== "string") {
+      return NextResponse.json(
+        { error: `Invalid line at index ${i} - each line needs 'id' (string) and 'text' (string)` },
+        { status: 400 },
+      );
+    }
   }
 
   const annotations = analyzeWithSections(body.doc);

@@ -1,22 +1,30 @@
 import { LyricDoc } from "@/lib/lyrics-types";
 import { isStructureTag } from "@/lib/lyrics-utils";
 
-const FILLER_PHRASES = [
-  "really",
-  "very",
-  "just",
-  "kinda",
-  "kind of",
-  "sorta",
-  "sort of",
-  "literally",
-  "honestly",
+const FILLERS: string[] = [
   "basically",
+  "literally",
+  "actually",
+  "honestly",
+  "totally",
+  "definitely",
+  "obviously",
+  "certainly",
+  "absolutely",
+  "really",
+  "really really",
+  "very",
+  "very very",
+  "sort of",
+  "kind of",
+  "kinda",
+  "sorta",
+  "you know",
+  "i mean",
 ];
 
-function removePhrase(text: string, phrase: string): string {
-  const pattern = new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
-  return text.replace(pattern, " ");
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function normalizeSpacing(text: string): string {
@@ -27,18 +35,20 @@ function normalizeSpacing(text: string): string {
 }
 
 export function removeFiller(doc: LyricDoc): LyricDoc {
-  return {
-    ...doc,
-    lines: doc.lines.map((line) => {
-      if (isStructureTag(line.text) || !line.text.trim()) return line;
+  const lines = doc.lines.map((line) => {
+    if (isStructureTag(line.text)) return line;
 
-      const cleaned = FILLER_PHRASES.reduce((acc, phrase) => removePhrase(acc, phrase), line.text);
-      const normalized = normalizeSpacing(cleaned);
+    let text = line.text;
+    for (const filler of FILLERS) {
+      const pattern = new RegExp(`\\b${escapeRegex(filler)}\\b\\s*`, "gi");
+      text = text.replace(pattern, " ");
+    }
 
-      return {
-        ...line,
-        text: normalized || line.text,
-      };
-    }),
-  };
+    return {
+      id: line.id,
+      text: normalizeSpacing(text),
+    };
+  });
+
+  return { ...doc, lines };
 }
