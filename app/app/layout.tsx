@@ -3,9 +3,9 @@ import { Geist, Geist_Mono, DM_Serif_Display } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
-const _dmSerifDisplay = DM_Serif_Display({ 
+const _geist = Geist({ subsets: ["latin"] }); // eslint-disable-line @typescript-eslint/no-unused-vars
+const _geistMono = Geist_Mono({ subsets: ["latin"] }); // eslint-disable-line @typescript-eslint/no-unused-vars
+const _dmSerifDisplay = DM_Serif_Display({ // eslint-disable-line @typescript-eslint/no-unused-vars
   subsets: ["latin"],
   weight: "400"
 });

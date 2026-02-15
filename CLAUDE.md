@@ -246,6 +246,12 @@ For sub-agents: write to `.runs/agent-name/summary.md`. Main workflow reads summ
 - **Fix**: System prompt: "IMPORTANT: When the user asks for lyrics, ALWAYS use the set_lyrics tool."
 - **Lesson**: Small models need explicit instructions to prefer tool calls.
 
+### Bug #9: Layer regeneration produces identical audio
+- **Symptom**: Regenerating a layer (e.g. bass) creates a new version but the audio is identical to the original.
+- **Root cause**: `handleRegenerate` and `regenerateVocalsWithLyrics` passed `cover_clip_id: p.originalClipId` to Suno. The `cover_clip_id` parameter tells Suno to generate a *cover* — preserving the original song's melody, harmony, and structure. Extracted stems from a cover are near-identical to the originals because the cover maintains the same musical foundation.
+- **Fix**: Remove `cover_clip_id` from regeneration calls. Fresh generation with stem-specific tags + the user's prompt produces genuinely different results. `cover_clip_id` is still correct for `handleAddLayer` where coherence with the existing mix is desired.
+- **Lesson**: `cover_clip_id` is for coherent *additions*, not for *regeneration* where the user explicitly wants something different.
+
 ## Prize Targets
 - **Suno: Best Musical Hack** — PRIMARY (guaranteed interview + 1yr Premier)
 - **TreeHacks Grand Prize** ($12k)

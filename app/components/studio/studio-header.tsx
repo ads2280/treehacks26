@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   Download,
   ChevronDown,
@@ -18,6 +19,7 @@ interface StudioHeaderProps {
   lyricsOpen?: boolean;
   onToggleLyrics?: () => void;
   onExportMix?: () => Promise<Blob | null>;
+  showLanding?: boolean;
 }
 
 export function StudioHeader({
@@ -26,6 +28,7 @@ export function StudioHeader({
   lyricsOpen,
   onToggleLyrics,
   onExportMix,
+  showLanding,
 }: StudioHeaderProps) {
   const [exportOpen, setExportOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -72,9 +75,11 @@ export function StudioHeader({
     <header className="flex items-center justify-between px-4 py-3 bg-[#0a0a0a] border-b border-white/10">
       <div className="flex items-center gap-4">
         <Link href="/" className="flex items-center gap-2">
-          <img
+          <Image
             src="/producething_brandmark.svg"
             alt="ProduceThing"
+            width={32}
+            height={32}
             className="h-8 w-auto"
           />
         </Link>
@@ -85,8 +90,8 @@ export function StudioHeader({
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Lyrics Toggle */}
-        {onToggleLyrics && (
+        {/* Lyrics Toggle — hidden in landing mode */}
+        {onToggleLyrics && !showLanding && (
           <Button
             size="sm"
             variant="outline"

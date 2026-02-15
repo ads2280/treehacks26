@@ -1,18 +1,38 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
 import type { UIMessage } from "ai";
-import { Send, User, Loader2, ChevronRight, Music, Layers, RefreshCw, Trash2 } from "lucide-react";
+import { Send, User, Loader2, ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { DjHead } from "@/components/icons/dj-head";
 import { Button } from "@/components/ui/button";
-import { SMART_SUGGESTIONS, STEM_COLORS, ALL_STEM_TYPES, STEM_LABELS, STEM_TYPE_TAGS } from "@/lib/layertune-types";
+import { SMART_SUGGESTIONS, STEM_COLORS, ALL_STEM_TYPES, STEM_LABELS } from "@/lib/layertune-types";
 import type { StemType, Project, ModelProvider } from "@/lib/layertune-types";
+
+const CHAT_STORAGE_KEY = "producething_chat_messages";
+
+function loadChatMessages(): UIMessage[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as UIMessage[];
+  } catch { /* ignore */ }
+  return [];
+}
+
+function saveChatMessages(messages: UIMessage[]) {
+  if (typeof window === "undefined") return;
+  try {
+    // Only keep the last 50 messages to avoid localStorage bloat
+    const toSave = messages.slice(-50);
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(toSave));
+  } catch { /* ignore - localStorage full */ }
+}
 
 const LAYER_CONTEXT_RE =
   /^\[Editing (.+?) layer \(id: .+?, type: (.+?)\)\]: ([\s\S]+)$/;
@@ -76,10 +96,13 @@ export function ChatPanel({
   });
 
   const modelProviderRef = useRef(modelProvider);
-  modelProviderRef.current = modelProvider;
   const agentModeRef = useRef(agentMode);
-  agentModeRef.current = agentMode;
+  useEffect(() => {
+    modelProviderRef.current = modelProvider;
+    agentModeRef.current = agentMode;
+  });
 
+  /* eslint-disable react-hooks/refs -- body is a lazy callback, not render-time access */
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -91,6 +114,7 @@ export function ChatPanel({
       }),
     []
   );
+  /* eslint-enable react-hooks/refs */
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -102,9 +126,14 @@ export function ChatPanel({
     stemType: StemType;
   } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  // Restore chat messages from localStorage on mount
+  const [initialMessages] = useState<UIMessage[]>(() => loadChatMessages());
+
   const { messages, sendMessage, addToolOutput, error, regenerate, status } =
     useChat({
       transport,
+      initialMessages,
       sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
       async onToolCall({ toolCall }) {
         const p = projectRef.current;
@@ -175,7 +204,9 @@ export function ChatPanel({
                   isSoloed: l.isSoloed,
                   volume: l.volume,
                 })),
-                cachedStems: p.stemCache.map((s) => s.stemType),
+                cachedStems: p.stemCache
+                  .filter((s) => s.audioUrl && s.audioUrl !== "/api/audio-proxy?url=")
+                  .map((s) => s.stemType),
                 hasOriginalClip: !!p.originalClipId,
               };
               output = JSON.stringify(state);
@@ -201,6 +232,13 @@ export function ChatPanel({
   const isStreaming = status === "streaming";
   const isSubmitted = status === "submitted";
   const isDisabled = isStreaming || isSubmitted || isGenerating;
+
+  // Persist chat messages to localStorage whenever they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      saveChatMessages(messages);
+    }
+  }, [messages]);
 
   // Auto-send pending message from landing page
   // Defer to next tick so useChat transport is fully initialized (AI SDK v6 timing issue)
@@ -487,8 +525,18 @@ function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemTyp
   const panelRef = useRef<HTMLDivElement>(null);
 
   const existingStems = new Set(project.layers.map((l) => l.stemType));
-  // Show unadded stems first, then already-added ones
-  const quickSuggestions = SMART_SUGGESTIONS.filter((s) => !existingStems.has(s.stemType)).slice(0, 4);
+  const cachedStems = new Set(
+    project.stemCache
+      .filter((s) => s.audioUrl && s.audioUrl !== "/api/audio-proxy?url=")
+      .map((s) => s.stemType)
+  );
+
+  // Prioritize cached stems in quick suggestions — they load instantly
+  const available = SMART_SUGGESTIONS.filter((s) => !existingStems.has(s.stemType));
+  const cachedFirst = [
+    ...available.filter((s) => cachedStems.has(s.stemType)),
+    ...available.filter((s) => !cachedStems.has(s.stemType)),
+  ].slice(0, 4);
 
   useEffect(() => {
     if (!showAll) return;
@@ -504,16 +552,23 @@ function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemTyp
   return (
     <div className="px-3 pb-2 relative" ref={panelRef}>
       <div className="flex flex-wrap-reverse justify-start gap-1.5">
-        {quickSuggestions.map((s) => (
-          <button
-            key={s.stemType}
-            type="button"
-            onClick={() => onAdd(s.stemType)}
-            className="px-2.5 py-1 text-xs rounded-full bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 hover:text-white hover:border-white/20 transition-all"
-          >
-            {s.label}
-          </button>
-        ))}
+        {cachedFirst.map((s) => {
+          const isCached = cachedStems.has(s.stemType);
+          return (
+            <button
+              key={s.stemType}
+              type="button"
+              onClick={() => onAdd(s.stemType)}
+              className={`px-2.5 py-1 text-xs rounded-full border transition-all ${
+                isCached
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400/80 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/40"
+                  : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white hover:border-white/20"
+              }`}
+            >
+              {s.label}
+            </button>
+          );
+        })}
         <button
           type="button"
           onClick={() => setShowAll(!showAll)}
@@ -533,6 +588,7 @@ function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemTyp
           <div className="grid grid-cols-2 gap-1">
             {ALL_STEM_TYPES.map((stemType) => {
               const count = project.layers.filter((l) => l.stemType === stemType).length;
+              const isCached = cachedStems.has(stemType);
               return (
                 <button
                   key={stemType}
@@ -541,13 +597,19 @@ function StemSuggestions({ project, onAdd }: { project: Project; onAdd: (stemTyp
                     onAdd(stemType);
                     setShowAll(false);
                   }}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left hover:bg-white/5 transition-colors group"
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors group ${
+                    isCached ? "hover:bg-emerald-500/10" : "hover:bg-white/5"
+                  }`}
                 >
                   <div
                     className="w-2 h-2 rounded-full flex-shrink-0"
                     style={{ backgroundColor: STEM_COLORS[stemType] }}
                   />
-                  <span className="text-white/70 group-hover:text-white/90 flex-1">
+                  <span className={`flex-1 ${
+                    isCached
+                      ? "text-emerald-400/70 group-hover:text-emerald-300"
+                      : "text-white/70 group-hover:text-white/90"
+                  }`}>
                     {STEM_LABELS[stemType]}
                   </span>
                   {count > 0 && (

@@ -12,17 +12,23 @@ export type StemType =
   | "brass"
   | "woodwinds";
 
-export type ABState = "none" | "comparing" | "a_selected" | "b_selected";
-
 export type LayerGenerationStatus = "generating" | "separating" | "loading" | "error";
 
 export type GenerationPhase =
   | "idle"
   | "generating"
+  | "previewing"
   | "separating"
   | "loading"
   | "complete"
   | "error";
+
+export interface LayerVersion {
+  audioUrl: string;
+  sunoClipId: string | null;
+  prompt: string;
+  createdAt: string;
+}
 
 export interface Layer {
   id: string;
@@ -31,7 +37,7 @@ export interface Layer {
   stemType: StemType;
   prompt: string;
   audioUrl: string | null;
-  previousAudioUrl: string | null;
+
   volume: number;
   isMuted: boolean;
   isSoloed: boolean;
@@ -39,6 +45,8 @@ export interface Layer {
   sunoClipId: string | null;
   generationJobId: string | null;
   generationStatus?: LayerGenerationStatus;
+  versions: LayerVersion[];
+  versionCursor: number;
   createdAt: string;
 }
 
@@ -58,7 +66,8 @@ export interface Project {
   layers: Layer[];
   originalClipId: string | null;
   stemCache: CachedStem[];
-  abState: Record<string, ABState>;
+  lyrics: string;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -135,8 +144,8 @@ export const SUNO_API_BASE =
   "https://studio-api.prod.suno.com/api/v2/external/hackathons";
 
 export const POLL_INTERVALS = {
-  clip: 5000,
-  stem: 8000,
+  clip: 2000,
+  stem: 3000,
 } as const;
 
 export const STEM_TYPE_TAGS: Record<StemType, string> = {

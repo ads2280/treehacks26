@@ -15,6 +15,7 @@ interface LyricsPanelProps {
   onLyricsChange: (lyrics: string) => void;
   onClose: () => void;
   onUseLyrics: () => void;
+  hasVocalLayer: boolean;
 }
 
 const STRUCTURE_TAGS = ["[Intro]", "[Verse]", "[Chorus]", "[Bridge]", "[Outro]"];
@@ -24,6 +25,7 @@ export function LyricsPanel({
   onLyricsChange,
   onClose,
   onUseLyrics,
+  hasVocalLayer,
 }: LyricsPanelProps) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isProducing, setIsProducing] = useState(false);
@@ -255,7 +257,7 @@ export function LyricsPanel({
           className="w-full bg-[#c4f567] text-black hover:bg-[#b8e557] font-semibold disabled:opacity-40 flex items-center justify-center gap-2"
         >
           <Check className="w-4 h-4" />
-          Use These Lyrics
+          {hasVocalLayer ? "Regenerate Vocals" : "Save Lyrics"}
         </Button>
       </div>
     </div>
