@@ -13,7 +13,7 @@ import { TransportBar } from "@/components/studio/transport-bar";
 import { RegenerateModal, DeleteDialog } from "@/components/studio/modals";
 import { GenerationOverlay } from "@/components/studio/generation-overlay";
 import { StudioLanding } from "@/components/studio/studio-landing";
-import { generate, stem, pollUntilDone, proxyAudioUrl, stemTitleToType } from "@/lib/api";
+import { generate, stem, pollUntilDone, pollStemsProgressively, proxyAudioUrl, stemTitleToType } from "@/lib/api";
 import { STEM_TYPE_TAGS, POLL_INTERVALS, STEM_LABELS } from "@/lib/layertune-types";
 import type { GenerationPhase, StemType, CachedStem } from "@/lib/layertune-types";
 
@@ -202,7 +202,7 @@ function StudioApp() {
 
         setOriginalClipId(clipIds[0]);
 
-        // Require 'complete' -- Suno needs full completion before stem separation
+        // Wait for full completion before stem separation
         await pollUntilDone(clipIds, {
           acceptStreaming: false,
           intervalMs: POLL_INTERVALS.clip,
@@ -214,50 +214,53 @@ function StudioApp() {
         const stemClipIds = stemData.clips?.map((c) => c.id) || [];
         if (stemClipIds.length === 0) throw new Error("No stem clips returned");
 
-        const stemClips = await pollUntilDone(stemClipIds, {
-          acceptStreaming: false,
-          intervalMs: POLL_INTERVALS.stem,
-          timeoutMs: 300000,
-        });
-
-        setGenerationPhase("loading");
+        // Progressive stem loading — waveforms populate one by one as each stem completes
         const cachedStems: CachedStem[] = [];
         let drumsAdded = false;
 
-        for (const stemClip of stemClips) {
-          if (!stemClip.audio_url) continue;
-          const stemType = (stemTitleToType(stemClip.title) || "fx") as StemType;
+        await pollStemsProgressively(
+          stemClipIds,
+          (stemClip) => {
+            if (!stemClip.audio_url) return;
+            const stemType = (stemTitleToType(stemClip.title) || "fx") as StemType;
 
-          if (stemType === "drums" && !drumsAdded) {
-            addLayer({
-              name: stemClip.title,
-              stemType,
-              prompt,
-              audioUrl: proxyAudioUrl(stemClip.audio_url),
-              previousAudioUrl: null,
-              volume: 0.8,
-              isMuted: false,
-              isSoloed: false,
-              position: 0,
-              sunoClipId: stemClip.id,
-              generationJobId: null,
-              projectId: project.id,
-            });
-            drumsAdded = true;
-          } else {
-            cachedStems.push({
-              stemType,
-              audioUrl: proxyAudioUrl(stemClip.audio_url),
-              sunoClipId: stemClip.id,
-              fromClipId: clipIds[0],
-              createdAt: new Date().toISOString(),
-            });
+            if (stemType === "drums" && !drumsAdded) {
+              drumsAdded = true;
+              setGenerationPhase("loading");
+              addLayer({
+                name: stemClip.title,
+                stemType,
+                prompt,
+                audioUrl: proxyAudioUrl(stemClip.audio_url),
+                previousAudioUrl: null,
+                volume: 0.8,
+                isMuted: false,
+                isSoloed: false,
+                position: 0,
+                sunoClipId: stemClip.id,
+                generationJobId: null,
+                projectId: project.id,
+              });
+              addToast("Drums ready! More stems loading...", "success");
+            } else {
+              cachedStems.push({
+                stemType,
+                audioUrl: proxyAudioUrl(stemClip.audio_url),
+                sunoClipId: stemClip.id,
+                fromClipId: clipIds[0],
+                createdAt: new Date().toISOString(),
+              });
+            }
+          },
+          {
+            intervalMs: POLL_INTERVALS.stem,
+            timeoutMs: 300000,
           }
-        }
+        );
 
         setStemCache(cachedStems);
         setGenerationPhase("complete");
-        addToast("Beat ready! Add more layers to build your track.", "success");
+        addToast("All stems ready! Add more layers to build your track.", "success");
         setTimeout(() => setGenerationPhase("idle"), 2000);
       } catch (error) {
         setGenerationPhase("error");

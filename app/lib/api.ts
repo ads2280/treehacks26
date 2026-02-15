@@ -83,6 +83,47 @@ export async function pollUntilDone(
   }
 }
 
+/**
+ * Poll stems progressively — calls `onStemReady` as each stem completes
+ * instead of waiting for all 12 to finish.
+ */
+export async function pollStemsProgressively(
+  ids: string[],
+  onStemReady: (clip: SunoClip) => void,
+  {
+    intervalMs = 5000,
+    timeoutMs = 300000,
+  } = {}
+): Promise<SunoClip[]> {
+  const startTime = Date.now();
+  const completed = new Map<string, SunoClip>();
+
+  while (completed.size < ids.length) {
+    if (Date.now() - startTime > timeoutMs) {
+      throw new Error(`Stem polling timed out after ${timeoutMs / 1000}s`);
+    }
+
+    await new Promise((r) => setTimeout(r, intervalMs));
+
+    const clips = await pollClips(ids);
+    if (!Array.isArray(clips)) continue;
+
+    const errorClip = clips.find((c) => c.status === "error");
+    if (errorClip) {
+      throw new Error(`Stem ${errorClip.id} failed`);
+    }
+
+    for (const clip of clips) {
+      if (clip.status === "complete" && !completed.has(clip.id) && clip.audio_url) {
+        completed.set(clip.id, clip);
+        onStemReady(clip);
+      }
+    }
+  }
+
+  return Array.from(completed.values());
+}
+
 export function stemTitleToType(title: string): StemType | undefined {
   const direct = STEM_NAME_TO_TYPE[title];
   if (direct) return direct;

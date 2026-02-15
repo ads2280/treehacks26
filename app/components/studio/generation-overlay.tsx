@@ -21,11 +21,11 @@ const PHASE_MESSAGES: Record<string, { label: string; sub: string }> = {
   },
   separating: {
     label: "Separating stems",
-    sub: "Isolating individual instruments...",
+    sub: "Waveforms will appear as each stem completes...",
   },
   loading: {
     label: "Loading audio",
-    sub: "Preparing waveforms for editing...",
+    sub: "First stem ready — more on the way...",
   },
 };
 
