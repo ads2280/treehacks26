@@ -166,20 +166,10 @@ export function ChatPanel({
 
   return (
     <div className="w-80 flex flex-col bg-[#0a0a0a] border-r border-white/10">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-white/10">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-[#c4f567]" />
-          <span className="text-sm font-medium text-white/80">
-            AI Producer
-          </span>
-        </div>
-      </div>
-
       {/* Messages */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-3 py-3 space-y-3"
+        className="flex-1 overflow-y-auto px-3 py-3 space-y-3 studio-scroll"
       >
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">

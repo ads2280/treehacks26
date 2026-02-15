@@ -35,7 +35,7 @@ export function LayerSidebar({
   onKeepVersion,
 }: LayerSidebarProps) {
   return (
-    <div className="w-56 flex-shrink-0 border-r border-white/10 overflow-y-auto">
+    <div className="w-56 flex-shrink-0 border-r border-white/10 overflow-y-auto studio-scroll">
       {layers.map((layer) => {
         const color = STEM_COLORS[layer.stemType];
         const ab = abState[layer.id] || "none";

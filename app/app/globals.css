@@ -134,3 +134,41 @@
     height: 56px;
   }
 }
+
+/* Custom scrollbars for dark studio UI */
+.studio-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.studio-scroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+}
+.studio-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+}
+.studio-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(196, 245, 103, 0.35);
+}
+.studio-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* Firefox */
+.studio-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) rgba(255, 255, 255, 0.03);
+}
+
+/* waveform-playlist native cursor (playhead) */
+.playlist .cursor {
+  background-color: #c4f567 !important;
+  width: 2px !important;
+}
+
+/* waveform-playlist native timescale */
+.playlist .timescale {
+  background-color: transparent !important;
+}
+.playlist .timescale canvas {
+  opacity: 0.4;
+}

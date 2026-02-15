@@ -63,6 +63,7 @@ function StudioApp() {
     pause: pauseAudio,
     stop: stopAudio,
     rewind: rewindAudio,
+    seek: seekAudio,
     exportAudio,
   } = useWaveformPlaylist({
     containerRef: playlistContainerRef,
@@ -402,10 +403,15 @@ function StudioApp() {
           STEM_TYPE_TAGS[layer.stemType as keyof typeof STEM_TYPE_TAGS] || "";
         const tags = `${stemTypeTag}, ${prompt}`;
 
+        // Auto-include lyrics for vocal layers
+        const isVocalLayer = layer.stemType === "vocals" || layer.stemType === "backing_vocals";
+        const lyricsPrompt = isVocalLayer && lyrics.trim() ? lyrics : undefined;
+
         const data = await generate({
           topic: prompt,
           tags,
           cover_clip_id: project.originalClipId,
+          prompt: lyricsPrompt,
         });
 
         const clipId = data.clips?.[0]?.id;
@@ -478,6 +484,7 @@ function StudioApp() {
       startABComparison,
       setABState,
       addToast,
+      lyrics,
     ]
   );
 
@@ -502,8 +509,18 @@ function StudioApp() {
   }, []);
 
   const handleUseLyrics = useCallback(() => {
-    addToast("Lyrics saved for next generation", "success");
-  }, [addToast]);
+    const vocalLayer = project.layers.find(
+      (l) => l.stemType === "vocals" || l.stemType === "backing_vocals"
+    );
+    if (vocalLayer) {
+      addToast("Lyrics updated", "info", {
+        label: "Regenerate vocals?",
+        onClick: () => handleRegenerate(vocalLayer.id, vocalLayer.prompt || "vocals"),
+      });
+    } else {
+      addToast("Lyrics saved for next generation", "success");
+    }
+  }, [addToast, project.layers, handleRegenerate]);
 
   const handleChatGenerate = useCallback(
     (
@@ -567,14 +584,33 @@ function StudioApp() {
             )}
             <WaveformDisplay
               layers={layers}
-              currentTime={currentTime}
-              duration={project.duration}
-              zoom={zoom}
-              onSeek={setCurrentTime}
               playlistContainerRef={playlistContainerRef}
             />
           </div>
           <GenerationOverlay phase={generationPhase} />
+          <TransportBar
+            isPlaying={isPlaying}
+            currentTime={currentTime}
+            duration={project.duration}
+            zoom={zoom}
+            masterVolume={masterVolume}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            onStop={() => {
+              setIsPlaying(false);
+              setCurrentTime(0);
+              stopAudio();
+            }}
+            onRewind={() => {
+              setCurrentTime(0);
+              rewindAudio();
+            }}
+            onSeek={setCurrentTime}
+            onSeekCommit={seekAudio}
+            onZoomIn={() => setZoom((z) => Math.min(z * 1.25, 10))}
+            onZoomOut={() => setZoom((z) => Math.max(z / 1.25, 0.25))}
+            onMasterVolumeChange={setMasterVolume}
+          />
         </div>
 
         {/* Right: Lyrics Panel */}
@@ -587,28 +623,6 @@ function StudioApp() {
           />
         )}
       </div>
-
-      <TransportBar
-        isPlaying={isPlaying}
-        currentTime={currentTime}
-        duration={project.duration}
-        zoom={zoom}
-        masterVolume={masterVolume}
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
-        onStop={() => {
-          setIsPlaying(false);
-          setCurrentTime(0);
-          stopAudio();
-        }}
-        onRewind={() => {
-          setCurrentTime(0);
-          rewindAudio();
-        }}
-        onZoomIn={() => setZoom((z) => Math.min(z * 1.25, 10))}
-        onZoomOut={() => setZoom((z) => Math.max(z / 1.25, 0.25))}
-        onMasterVolumeChange={setMasterVolume}
-      />
 
       <RegenerateModal
         open={!!regenLayerId}

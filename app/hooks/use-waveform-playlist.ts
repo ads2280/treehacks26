@@ -19,6 +19,7 @@ interface UseWaveformPlaylistReturn {
   pause: () => void;
   stop: () => void;
   rewind: () => void;
+  seek: (time: number) => void;
   isLoaded: boolean;
   exportAudio: () => Promise<Blob | null>;
 }
@@ -63,6 +64,7 @@ export function useWaveformPlaylist({
   const eeRef = useRef<any>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [reinitKey, setReinitKey] = useState(0);
   const isInitializedRef = useRef(false);
   const exporterInitializedRef = useRef(false);
 
@@ -86,6 +88,8 @@ export function useWaveformPlaylist({
     let onFinishedListener: ((...args: any[]) => void) | undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let onRenderedListener: ((...args: any[]) => void) | undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let onSelectListener: ((...args: any[]) => void) | undefined;
 
     const init = async () => {
       const EventEmitter = (await import("event-emitter")).default;
@@ -103,7 +107,7 @@ export function useWaveformPlaylist({
           mono: true,
           waveHeight: 55,
           isAutomaticScroll: true,
-          timescale: false,
+          timescale: true,
           state: "cursor",
           colors: {
             waveOutlineColor: "#a78bfa",
@@ -122,6 +126,7 @@ export function useWaveformPlaylist({
       playlistRef.current = playlist;
       isInitializedRef.current = true;
       setIsInitialized(true);
+      setReinitKey((k) => k + 1);
 
       onTimeUpdateListener = (seconds: unknown) => {
         onTimeUpdateRef.current(seconds as number);
@@ -139,6 +144,17 @@ export function useWaveformPlaylist({
         }
       };
       ee.on("audiosourcesrendered", onRenderedListener);
+
+      // Listen for cursor clicks on the waveform (native waveform-playlist seek)
+      onSelectListener = (startTime: unknown) => {
+        if (typeof startTime === "number") {
+          if (playlistRef.current) {
+            playlistRef.current.playbackSeconds = startTime;
+          }
+          onTimeUpdateRef.current(startTime);
+        }
+      };
+      ee.on("select", onSelectListener);
     };
 
     init();
@@ -151,6 +167,7 @@ export function useWaveformPlaylist({
         if (onTimeUpdateListener) ee.off("timeupdate", onTimeUpdateListener);
         if (onFinishedListener) ee.off("finished", onFinishedListener);
         if (onRenderedListener) ee.off("audiosourcesrendered", onRenderedListener);
+        if (onSelectListener) ee.off("select", onSelectListener);
       }
 
       if (containerRef.current) {
@@ -167,7 +184,8 @@ export function useWaveformPlaylist({
   }, []);
 
   // Load / reload tracks when the set of audio URLs changes
-  const trackKey = layerTrackKey(layers);
+  // reinitKey is appended so tracks reload after HMR re-init (keeps deps array size stable)
+  const trackKey = `${layerTrackKey(layers)}::${reinitKey}`;
 
   useEffect(() => {
     if (!playlistRef.current || !eeRef.current || !isInitialized) return;
@@ -301,6 +319,35 @@ export function useWaveformPlaylist({
     onTimeUpdateRef.current(0);
   }, [isLoaded]);
 
+  const seek = useCallback((time: number) => {
+    if (!playlistRef.current || !eeRef.current || !isLoaded) return;
+    const playlist = playlistRef.current;
+    const ee = eeRef.current;
+
+    let wasPlaying = false;
+    try {
+      wasPlaying = typeof playlist.isPlaying === "function" && playlist.isPlaying();
+    } catch {
+      // isPlaying may throw if no tracks loaded
+    }
+
+    // Set all internal position trackers — play() reads pausedAt/cursor, not playbackSeconds
+    playlist.playbackSeconds = time;
+    playlist.pausedAt = time;
+    playlist.cursor = time;
+
+    if (wasPlaying) {
+      try { ee.emit("pause"); } catch { /* noop */ }
+      setTimeout(() => {
+        try { ee.emit("play"); } catch { /* noop */ }
+      }, 0);
+    } else {
+      try { playlist.drawRequest(); } catch { /* noop */ }
+    }
+
+    onTimeUpdateRef.current(time);
+  }, [isLoaded]);
+
   // Export audio as WAV blob
   const exportAudio = useCallback(async (): Promise<Blob | null> => {
     if (!eeRef.current || !playlistRef.current || !isLoaded) return null;
@@ -330,5 +377,5 @@ export function useWaveformPlaylist({
     });
   }, [isLoaded]);
 
-  return { play, pause, stop, rewind, isLoaded, exportAudio };
+  return { play, pause, stop, rewind, seek, isLoaded, exportAudio };
 }

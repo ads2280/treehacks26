@@ -11,14 +11,20 @@ import { X } from "lucide-react";
 
 type ToastType = "success" | "error" | "info";
 
+interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface Toast {
   id: string;
   message: string;
   type: ToastType;
+  action?: ToastAction;
 }
 
 interface ToastContextValue {
-  addToast: (message: string, type?: ToastType) => void;
+  addToast: (message: string, type?: ToastType, action?: ToastAction) => void;
 }
 
 const ToastContext = createContext<ToastContextValue>({
@@ -43,10 +49,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addToast = useCallback(
-    (message: string, type: ToastType = "success") => {
+    (message: string, type: ToastType = "success", action?: ToastAction) => {
       const id = Math.random().toString(36).substring(2, 10);
-      setToasts((prev) => [...prev, { id, message, type }]);
-      setTimeout(() => removeToast(id), 3000);
+      setToasts((prev) => [...prev, { id, message, type, action }]);
+      // Action toasts stay longer (8s) so user has time to click
+      setTimeout(() => removeToast(id), action ? 8000 : 3000);
     },
     [removeToast]
   );
@@ -62,6 +69,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             className={`pointer-events-auto flex items-center gap-3 px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium animate-in slide-in-from-top-2 fade-in ${TYPE_STYLES[toast.type]}`}
           >
             <span>{toast.message}</span>
+            {toast.action && (
+              <button
+                onClick={() => {
+                  toast.action!.onClick();
+                  removeToast(toast.id);
+                }}
+                className="px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors text-xs font-semibold"
+              >
+                {toast.action.label}
+              </button>
+            )}
             <button
               onClick={() => removeToast(toast.id)}
               className="opacity-70 hover:opacity-100 transition-opacity"
