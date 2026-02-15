@@ -109,7 +109,7 @@ function selectModel(modelProvider: ModelProvider, agentMode: boolean) {
   if (modelProvider === "anthropic") {
     return anthropic("claude-opus-4-6");
   }
-  return openai("gpt-5-nano");
+  return openai("gpt-5");
 }
 
 const tools = {

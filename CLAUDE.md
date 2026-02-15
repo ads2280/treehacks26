@@ -154,13 +154,15 @@ Base URL: `https://studio-api.prod.suno.com/api/v2/external/hackathons`
 ## Vercel Deployment
 ```json
 {
+  "framework": "nextjs",
+  "regions": ["iad1"],
   "functions": {
     "app/api/chat/route.ts": { "maxDuration": 60 },
     "app/api/generate/route.ts": { "maxDuration": 30 },
     "app/api/stem/route.ts": { "maxDuration": 30 },
-    "app/api/stem-demucs/route.ts": { "maxDuration": 60 },
     "app/api/clips/route.ts": { "maxDuration": 10 },
-    "app/api/audio-proxy/route.ts": { "maxDuration": 10 }
+    "app/api/audio-proxy/route.ts": { "maxDuration": 10 },
+    "app/api/stem-demucs/route.ts": { "maxDuration": 120 }
   }
 }
 ```

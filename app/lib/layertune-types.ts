@@ -65,27 +65,14 @@ export interface Project {
 
 export interface SunoClip {
   id: string;
-  video_url: string;
-  audio_url: string;
-  image_url: string | null;
-  image_large_url: string | null;
-  is_video_pending: boolean;
-  major_model_version: string;
-  model_name: string;
-  metadata: Record<string, unknown>;
-  is_liked: boolean;
-  user_id: string;
-  display_name: string;
-  handle: string;
-  is_handle_updated: boolean;
-  is_trashed: boolean;
-  reaction: null;
-  created_at: string;
+  request_id?: string;
   status: "submitted" | "queued" | "streaming" | "complete" | "error";
   title: string;
-  play_count: number;
-  upvote_count: number;
-  is_public: boolean;
+  audio_url: string;
+  image_url?: string | null;
+  image_large_url?: string | null;
+  created_at: string;
+  metadata: Record<string, unknown>;
 }
 
 export interface SunoGenerateRequest {
@@ -138,6 +125,11 @@ export const STEM_LABELS: Record<StemType, string> = {
   brass: "Brass",
   woodwinds: "Woodwinds",
 };
+
+export const ALL_STEM_TYPES: StemType[] = [
+  "drums", "bass", "vocals", "guitar", "keyboard", "synth",
+  "backing_vocals", "percussion", "strings", "fx", "brass", "woodwinds",
+];
 
 export const SUNO_API_BASE =
   "https://studio-api.prod.suno.com/api/v2/external/hackathons";

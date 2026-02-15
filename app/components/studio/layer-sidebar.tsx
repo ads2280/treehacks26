@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useRef } from "react";
 import {
   Volume2,
   VolumeX,
@@ -7,17 +8,66 @@ import {
   RefreshCw,
   Trash2,
   Loader2,
+  AlertCircle,
+  X,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import type { Layer, ABState, LayerGenerationStatus } from "@/lib/layertune-types";
 import { STEM_COLORS, STEM_LABELS } from "@/lib/layertune-types";
 
 const PHASE_LABELS: Record<LayerGenerationStatus, string> = {
-  generating: "gen",
-  separating: "stem",
-  loading: "load",
-  error: "err",
+  generating: "Generating",
+  separating: "Separating stems",
+  loading: "Loading audio",
+  error: "Error",
 };
+
+// Estimated durations per phase (seconds) for asymptotic progress
+const PHASE_DURATIONS: Record<string, number> = {
+  generating: 90,
+  separating: 120,
+  loading: 5,
+};
+
+// Each phase's share of the total bar [0..1]
+const PHASE_RANGES: Record<string, [number, number]> = {
+  generating: [0, 0.5],
+  separating: [0.5, 0.9],
+  loading: [0.9, 1.0],
+};
+
+function LayerProgressBar({ status, color }: { status: LayerGenerationStatus; color: string }) {
+  const [elapsed, setElapsed] = useState(0);
+  const phaseStartRef = useRef(Date.now());
+
+  useEffect(() => {
+    phaseStartRef.current = Date.now();
+    setElapsed(0);
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - phaseStartRef.current) / 1000));
+    }, 500);
+    return () => clearInterval(interval);
+  }, [status]);
+
+  const estimate = PHASE_DURATIONS[status] || 60;
+  const [rangeStart, rangeEnd] = PHASE_RANGES[status] || [0, 1];
+  const rangeSize = rangeEnd - rangeStart;
+  // Asymptotic: approaches 95% of this phase's range
+  const phaseProgress = Math.min(0.95, 1 - Math.exp(-elapsed / (estimate * 0.4)));
+  const totalProgress = (rangeStart + phaseProgress * rangeSize) * 100;
+
+  return (
+    <div className="px-3 pb-1.5 space-y-1">
+      <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-700 ease-out"
+          style={{ width: `${totalProgress}%`, backgroundColor: color, opacity: 0.7 }}
+        />
+      </div>
+      <span className="text-[10px] text-white/30">{PHASE_LABELS[status]}</span>
+    </div>
+  );
+}
 
 function layerButtonClass(isDisabled: boolean, activeClass?: string): string {
   const base = "p-1 rounded transition-colors";
@@ -58,7 +108,6 @@ export function LayerSidebar({
         const isA = ab === "a_selected";
         const genStatus = layer.generationStatus;
         const isLayerGenerating = !!genStatus && genStatus !== "error";
-        const phaseLabel = genStatus ? PHASE_LABELS[genStatus] : null;
 
         return (
           <div
@@ -92,12 +141,9 @@ export function LayerSidebar({
                   style={{ backgroundColor: genStatus === "error" ? "#ef4444" : color }}
                 />
               )}
-              {/* Name + phase label */}
+              {/* Name */}
               <span className="text-xs text-white/80 truncate flex-1" title={layer.name}>
                 {STEM_LABELS[layer.stemType]}
-                {phaseLabel && (
-                  <span className="ml-1 text-[10px] text-white/40">({phaseLabel})</span>
-                )}
               </span>
               {/* Mute */}
               <button
@@ -146,23 +192,39 @@ export function LayerSidebar({
               </button>
             </div>
 
-            {/* Volume slider */}
-            <div className="px-3 pb-1.5">
-              <Slider
-                value={[layer.volume * 100]}
-                min={0}
-                max={100}
-                step={1}
-                disabled={isLayerGenerating}
-                onValueChange={([v]) => onVolumeChange(layer.id, v / 100)}
-                className={`w-full [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:bg-white/10 [&_[data-slot=slider-range]]:bg-white/30 [&_[data-slot=slider-thumb]]:h-2.5 [&_[data-slot=slider-thumb]]:w-2.5 [&_[data-slot=slider-thumb]]:border-0 ${isLayerGenerating ? "opacity-30" : ""}`}
-                style={
-                  {
-                    "--slider-color": color,
-                  } as React.CSSProperties
-                }
-              />
-            </div>
+            {/* Volume slider, progress bar, or error state */}
+            {genStatus === "error" ? (
+              <div className="px-3 pb-1.5 flex items-center gap-1.5">
+                <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />
+                <span className="text-[10px] text-red-400 flex-1 truncate">Generation failed</span>
+                <button
+                  onClick={() => onDelete(layer.id)}
+                  className="p-0.5 rounded text-red-400/60 hover:text-red-400 transition-colors"
+                  title="Remove failed layer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ) : isLayerGenerating && genStatus ? (
+              <LayerProgressBar status={genStatus} color={color} />
+            ) : (
+              <div className="px-3 pb-1.5">
+                <Slider
+                  value={[layer.volume * 100]}
+                  min={0}
+                  max={100}
+                  step={1}
+                  disabled={isLayerGenerating}
+                  onValueChange={([v]) => onVolumeChange(layer.id, v / 100)}
+                  className={`w-full [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:bg-white/10 [&_[data-slot=slider-range]]:bg-white/30 [&_[data-slot=slider-thumb]]:h-2.5 [&_[data-slot=slider-thumb]]:w-2.5 [&_[data-slot=slider-thumb]]:border-0 ${isLayerGenerating ? "opacity-30" : ""}`}
+                  style={
+                    {
+                      "--slider-color": color,
+                    } as React.CSSProperties
+                  }
+                />
+              </div>
+            )}
 
             {/* A/B Comparison panel — hidden while generating */}
             {isComparing && !isLayerGenerating && (

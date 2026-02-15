@@ -11,7 +11,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Stem separation failed";
-    const status = message.includes("(429)") ? 429 : 500;
+    const statusMatch = message.match(/\((\d{3})\)/);
+    const status = statusMatch ? parseInt(statusMatch[1], 10) : 500;
+    console.error(`[stem] ${status}: ${message}`);
     return NextResponse.json({ error: message }, { status });
   }
 }

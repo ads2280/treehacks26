@@ -13,7 +13,7 @@ import { TransportBar } from "@/components/studio/transport-bar";
 import { RegenerateModal, DeleteDialog } from "@/components/studio/modals";
 import { GenerationOverlay } from "@/components/studio/generation-overlay";
 import { StudioLanding } from "@/components/studio/studio-landing";
-import { generate, stem, stemDemucs, pollUntilDone, pollStemsProgressively, proxyAudioUrl, stemTitleToType } from "@/lib/api";
+import { generate, stem, stemDemucs, pollUntilDone, pollStemsProgressively, pollForTargetStem, proxyAudioUrl, stemTitleToType } from "@/lib/api";
 import { STEM_TYPE_TAGS, POLL_INTERVALS, STEM_LABELS } from "@/lib/layertune-types";
 import type { GenerationPhase, StemType, CachedStem, ModelProvider } from "@/lib/layertune-types";
 
@@ -206,23 +206,26 @@ function StudioApp() {
 
         setOriginalClipId(clipIds[0]);
 
-        // Phase 1: Poll until streaming (~20-30s) → play full mix immediately
-        const streamingClips = await pollUntilDone(clipIds, {
-          acceptStreaming: true,
+        // Wait for clip to fully complete before loading into waveform-playlist.
+        // waveform-playlist needs the complete audio buffer for decodeAudioData() —
+        // streaming URLs (audiopipe.suno.ai) block the download until generation
+        // finishes, causing a long "Loading audio" hang.
+        const completedClips = await pollUntilDone(clipIds, {
+          acceptStreaming: false,
           intervalMs: POLL_INTERVALS.clip,
           timeoutMs: 180000,
         });
 
-        const streamingClip = streamingClips[0];
-        if (!streamingClip.audio_url) throw new Error("No audio URL returned from generation");
+        const completedClip = completedClips[0];
+        if (!completedClip.audio_url) throw new Error("No audio URL returned from generation");
 
-        // Add full mix layer so user hears audio right away
+        // Add full mix layer with final CDN URL — download + decode is fast (~2-3s)
         setGenerationPhase("loading");
         const mixLayerId = addLayer({
           name: "Full Mix",
           stemType: "drums" as StemType,
           prompt,
-          audioUrl: proxyAudioUrl(streamingClip.audio_url),
+          audioUrl: proxyAudioUrl(completedClip.audio_url),
           previousAudioUrl: null,
           volume: 0.8,
           isMuted: false,
@@ -232,22 +235,7 @@ function StudioApp() {
           generationJobId: null,
           projectId: project.id,
         });
-        addToast("Track streaming! Separating stems in background...", "success");
-
-        // Phase 2: Wait for complete (required for stem separation)
-        let completedClip = streamingClip;
-        if (streamingClip.status !== "complete") {
-          const completedClips = await pollUntilDone(clipIds, {
-            acceptStreaming: false,
-            intervalMs: POLL_INTERVALS.clip,
-            timeoutMs: 180000,
-          });
-          completedClip = completedClips[0];
-          // Update the mix layer with the final CDN URL (better quality than streaming pipe)
-          updateLayer(mixLayerId, {
-            audioUrl: proxyAudioUrl(completedClip.audio_url),
-          });
-        }
+        addToast("Track ready! Separating stems in background...", "success");
 
         setGenerationPhase("separating");
 
@@ -398,34 +386,26 @@ function StudioApp() {
         const stemIds = stemData.clips?.map((c) => c.id) || [];
         if (stemIds.length === 0) throw new Error("No stem clips returned");
 
-        const stemClips = await pollUntilDone(stemIds, {
-          acceptStreaming: false,
+        // Poll until the target stem is ready — resolves as soon as it completes
+        // instead of waiting for all 12 stems (saves 30-90s)
+        const matchingStem = await pollForTargetStem(stemIds, targetStemType, {
           intervalMs: POLL_INTERVALS.stem,
           timeoutMs: 300000,
         });
 
         updateLayer(placeholderId, { generationStatus: "loading" });
-        const matchingStem = stemClips.find(
-          (s) => stemTitleToType(s.title) === targetStemType
-        );
-
-        if (matchingStem?.audio_url) {
-          updateLayer(placeholderId, {
-            name: matchingStem.title,
-            audioUrl: proxyAudioUrl(matchingStem.audio_url),
-            sunoClipId: matchingStem.id,
-            generationStatus: undefined,
-          });
-          addToast(`${matchingStem.title} layer added!`, "success");
-          return `${stemTypeDisplayName(targetStemType)} layer generated and added. Layers: ${project.layers.length + 1}.`;
-        } else {
-          throw new Error(
-            `No ${targetStemType} stem found in generated track`
-          );
-        }
+        updateLayer(placeholderId, {
+          name: matchingStem.title,
+          audioUrl: proxyAudioUrl(matchingStem.audio_url),
+          sunoClipId: matchingStem.id,
+          generationStatus: undefined,
+        });
+        addToast(`${stemTypeDisplayName(targetStemType)} layer added!`, "success");
+        return `${stemTypeDisplayName(targetStemType)} layer generated and added. Layers: ${project.layers.length + 1}.`;
       } catch (error) {
         updateLayer(placeholderId, { generationStatus: "error" });
         const msg = error instanceof Error ? error.message : "Add layer failed";
+        console.error(`[handleAddLayer] Failed for "${targetStemType}":`, msg);
         addToast(msg, "error");
         return `Failed to add ${stemTypeDisplayName(targetStemType)}: ${msg}`;
       }
@@ -474,31 +454,24 @@ function StudioApp() {
         const stemIds = stemData.clips?.map((c) => c.id) || [];
         if (stemIds.length === 0) throw new Error("No stem clips returned");
 
-        const stemClips = await pollUntilDone(stemIds, {
-          acceptStreaming: false,
+        // Poll until the target stem is ready — resolves as soon as it completes
+        // instead of waiting for all 12 stems (saves 30-90s)
+        const matchingStem = await pollForTargetStem(stemIds, layer.stemType as StemType, {
           intervalMs: POLL_INTERVALS.stem,
           timeoutMs: 300000,
         });
 
-        const matchingStem = stemClips.find(
-          (s) => stemTitleToType(s.title) === layer.stemType
+        updateLayer(layerId, {
+          audioUrl: proxyAudioUrl(matchingStem.audio_url),
+          prompt,
+          sunoClipId: matchingStem.id,
+          generationStatus: undefined,
+        });
+        addToast(
+          `${STEM_LABELS[layer.stemType]} regenerated! Compare A/B versions.`,
+          "success"
         );
-
-        if (matchingStem?.audio_url) {
-          updateLayer(layerId, {
-            audioUrl: proxyAudioUrl(matchingStem.audio_url),
-            prompt,
-            sunoClipId: matchingStem.id,
-            generationStatus: undefined,
-          });
-          addToast(
-            `${STEM_LABELS[layer.stemType]} regenerated! Compare A/B versions.`,
-            "success"
-          );
-          return `${STEM_LABELS[layer.stemType]} regenerated with: "${prompt}". A/B comparison available — user can pick version.`;
-        } else {
-          throw new Error("Matching stem not found");
-        }
+        return `${STEM_LABELS[layer.stemType]} regenerated with: "${prompt}". A/B comparison available — user can pick version.`;
       } catch (error) {
         const msg = error instanceof Error ? error.message : "Regeneration failed";
         addToast(msg, "error");

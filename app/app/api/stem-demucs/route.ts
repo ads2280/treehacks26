@@ -15,6 +15,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Validate audio_url against Suno CDN allowlist to prevent SSRF
+    const ALLOWED_AUDIO_HOSTS = [
+      "cdn1.suno.ai",
+      "cdn2.suno.ai",
+      "cdn.suno.ai",
+      "audiopipe.suno.ai",
+    ];
+    try {
+      const parsed = new URL(audio_url);
+      const allowed =
+        (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+        ALLOWED_AUDIO_HOSTS.some(
+          (host) =>
+            parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
+        );
+      if (!allowed) {
+        return NextResponse.json(
+          { error: "audio_url must be a Suno CDN URL" },
+          { status: 403 }
+        );
+      }
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid audio_url" },
+        { status: 400 }
+      );
+    }
+
     const jobId = clip_id || crypto.randomUUID();
     const result = await separateWithDemucs(audio_url, jobId);
 
