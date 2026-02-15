@@ -18,10 +18,14 @@ yarn-error.log*
 
 # env files
 .env*
+!.env.example
 
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
-next-env.d.tsapp/.logs/
+next-env.d.ts
+
+# logs
+.logs/

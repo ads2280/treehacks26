@@ -166,6 +166,7 @@ export function ChatPanel({
   const isDisabled = isStreaming || isSubmitted || isGenerating;
 
   // Auto-send pending message from landing page
+  // Defer to next tick so useChat transport is fully initialized (AI SDK v6 timing issue)
   const pendingConsumedRef = useRef(false);
   useEffect(() => {
     if (!pendingMessage) {
@@ -174,8 +175,11 @@ export function ChatPanel({
     }
     if (!pendingConsumedRef.current && status === "ready") {
       pendingConsumedRef.current = true;
-      sendMessage({ text: pendingMessage });
-      onPendingMessageConsumed?.();
+      const id = setTimeout(() => {
+        sendMessage({ text: pendingMessage });
+        onPendingMessageConsumed?.();
+      }, 50);
+      return () => clearTimeout(id);
     }
   }, [pendingMessage, status, sendMessage, onPendingMessageConsumed]);
 
