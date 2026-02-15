@@ -334,7 +334,6 @@ export default function HomePage() {
                       alt="ProduceThing" 
                       className="h-24 md:h-32 w-auto mx-auto"
                     />
-                    <p className="text-2xl md:text-3xl text-white/60 mt-4">by Duy</p>
                   </div>
                 </div>
 
@@ -360,7 +359,6 @@ export default function HomePage() {
                         <ArrowRight className="w-5 h-5" />
                       </Button>
                     </Link>
-                    <p className="text-sm text-white/50 mt-4">by <span className="italic font-serif">Duy</span></p>
                   </div>
                 </div>
 

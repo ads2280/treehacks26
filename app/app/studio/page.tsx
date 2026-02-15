@@ -193,12 +193,13 @@ function StudioApp() {
       setVibePrompt(prompt);
 
       try {
+        const hasLyrics = !!options?.lyrics?.trim();
         const data = await generate({
-          topic: prompt,
+          topic: hasLyrics ? undefined : prompt,
+          prompt: hasLyrics ? options?.lyrics : undefined,
           tags: options?.tags || `drums, beat, rhythm, ${prompt}`,
           make_instrumental: instrumental,
           negative_tags: options?.negative_tags,
-          prompt: options?.lyrics || undefined,
         });
 
         const clipIds = data.clips?.map((c) => c.id) || [];
@@ -376,8 +377,9 @@ function StudioApp() {
         if (!clipId) throw new Error("No clip returned");
 
         await pollUntilDone([clipId], {
-          acceptStreaming: false,
-          intervalMs: POLL_INTERVALS.clip,
+          // Layer add can use streaming-ready audio to reduce wait time.
+          acceptStreaming: true,
+          intervalMs: Math.min(POLL_INTERVALS.clip, 2500),
           timeoutMs: 180000,
         });
 
@@ -434,18 +436,19 @@ function StudioApp() {
         const lyricsPrompt = isVocalLayer && currentLyrics.trim() ? currentLyrics : undefined;
 
         const data = await generate({
-          topic: prompt,
+          topic: lyricsPrompt ? undefined : prompt,
+          prompt: lyricsPrompt,
           tags,
           cover_clip_id: p.originalClipId,
-          prompt: lyricsPrompt,
         });
 
         const clipId = data.clips?.[0]?.id;
         if (!clipId) throw new Error("No clip returned");
 
         await pollUntilDone([clipId], {
-          acceptStreaming: false,
-          intervalMs: POLL_INTERVALS.clip,
+          // Regeneration can use streaming-ready audio to reduce wait time.
+          acceptStreaming: true,
+          intervalMs: Math.min(POLL_INTERVALS.clip, 2500),
           timeoutMs: 180000,
         });
 
@@ -519,10 +522,8 @@ function StudioApp() {
       (l) => l.stemType === "vocals" || l.stemType === "backing_vocals"
     );
     if (vocalLayer) {
-      addToast("Lyrics updated", "info", {
-        label: "Regenerate vocals?",
-        onClick: () => handleRegenerate(vocalLayer.id, vocalLayer.prompt || "vocals"),
-      });
+      addToast("Lyrics updated - regenerating vocals", "info");
+      void handleRegenerate(vocalLayer.id, vocalLayer.prompt || "vocals");
     } else {
       addToast("Lyrics saved for next generation", "success");
     }
