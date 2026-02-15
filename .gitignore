@@ -1,0 +1,17 @@
+# specs
+docs/specs/
+
+# env files
+.env*
+!.env.example
+
+# logs
+.logs/
+.runs/
+
+# context
+.context/
+
+# modal
+__pycache__/
+*.pyc

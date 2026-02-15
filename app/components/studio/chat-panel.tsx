@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
@@ -11,7 +11,7 @@ import { Send, User, Loader2 } from "lucide-react";
 import { DjHead } from "@/components/icons/dj-head";
 import { Button } from "@/components/ui/button";
 import { SMART_SUGGESTIONS, STEM_COLORS } from "@/lib/layertune-types";
-import type { StemType, Project } from "@/lib/layertune-types";
+import type { StemType, Project, ModelProvider } from "@/lib/layertune-types";
 
 const LAYER_CONTEXT_RE =
   /^\[Editing (.+?) layer \(id: .+?, type: (.+?)\)\]: ([\s\S]+)$/;
@@ -42,11 +42,15 @@ interface ChatPanelProps {
     tags: string,
     instrumental: boolean,
     options?: { negative_tags?: string; lyrics?: string }
-  ) => void;
-  onAddLayer: (stemType: StemType, tags: string) => void;
-  onRegenerateLayer: (layerId: string, description: string) => void;
+  ) => Promise<string>;
+  onAddLayer: (stemType: StemType, tags: string) => Promise<string>;
+  onRegenerateLayer: (layerId: string, description: string) => Promise<string>;
   onRemoveLayer: (layerId: string) => void;
   onSetLyrics: (lyrics: string) => void;
+  modelProvider: ModelProvider;
+  onModelProviderChange: (provider: ModelProvider) => void;
+  agentMode: boolean;
+  onAgentModeChange: (mode: boolean) => void;
 }
 
 export function ChatPanel({
@@ -60,11 +64,32 @@ export function ChatPanel({
   onRegenerateLayer,
   onRemoveLayer,
   onSetLyrics,
+  modelProvider,
+  onModelProviderChange,
+  agentMode,
+  onAgentModeChange,
 }: ChatPanelProps) {
   const projectRef = useRef(project);
   useEffect(() => {
     projectRef.current = project;
   });
+
+  const modelProviderRef = useRef(modelProvider);
+  modelProviderRef.current = modelProvider;
+  const agentModeRef = useRef(agentMode);
+  agentModeRef.current = agentMode;
+
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        body: () => ({
+          modelProvider: modelProviderRef.current,
+          agentMode: agentModeRef.current,
+        }),
+      }),
+    []
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -78,86 +103,97 @@ export function ChatPanel({
   const [isDragOver, setIsDragOver] = useState(false);
   const { messages, sendMessage, addToolOutput, error, regenerate, status } =
     useChat({
-      transport: new DefaultChatTransport({ api: "/api/chat" }),
+      transport,
       sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
       async onToolCall({ toolCall }) {
         const p = projectRef.current;
-        let output = "Done";
+        try {
+          let output = "Done";
 
-        switch (toolCall.toolName) {
-          case "generate_track": {
-            const args = toolCall.input as {
-              topic: string;
-              tags: string;
-              make_instrumental?: boolean;
-              negative_tags?: string;
-              lyrics?: string;
-            };
-            onGenerateTrack(args.topic, args.tags, !!args.make_instrumental, {
-              negative_tags: args.negative_tags,
-              lyrics: args.lyrics,
-            });
-            output = `Started generating track: "${args.topic}" with tags: ${args.tags}`;
-            break;
+          switch (toolCall.toolName) {
+            case "generate_track": {
+              const args = toolCall.input as {
+                topic: string;
+                tags: string;
+                make_instrumental?: boolean;
+                negative_tags?: string;
+                lyrics?: string;
+              };
+              output = await onGenerateTrack(args.topic, args.tags, !!args.make_instrumental, {
+                negative_tags: args.negative_tags,
+                lyrics: args.lyrics,
+              });
+              break;
+            }
+            case "add_layer": {
+              const args = toolCall.input as {
+                stemType: StemType;
+                tags?: string;
+                topic?: string;
+              };
+              output = await onAddLayer(args.stemType, args.tags || args.topic || "");
+              break;
+            }
+            case "regenerate_layer": {
+              const args = toolCall.input as {
+                layerId: string;
+                newDescription: string;
+                tags?: string;
+              };
+              const regenDescription = args.tags
+                ? `${args.newDescription} [tags: ${args.tags}]`
+                : args.newDescription;
+              output = await onRegenerateLayer(args.layerId, regenDescription);
+              break;
+            }
+            case "remove_layer": {
+              const args = toolCall.input as { layerId: string };
+              onRemoveLayer(args.layerId);
+              output = `Removed layer ${args.layerId}`;
+              break;
+            }
+            case "set_lyrics": {
+              const args = toolCall.input as { lyrics: string };
+              onSetLyrics(args.lyrics);
+              output = "Lyrics updated";
+              break;
+            }
+            case "get_composition_state": {
+              const state = {
+                title: p.title,
+                vibePrompt: p.vibePrompt,
+                duration: p.duration,
+                layerCount: p.layers.length,
+                layers: p.layers.map((l) => ({
+                  id: l.id,
+                  name: l.name,
+                  stemType: l.stemType,
+                  hasAudio: !!l.audioUrl,
+                  generationStatus: l.generationStatus || null,
+                  isMuted: l.isMuted,
+                  isSoloed: l.isSoloed,
+                  volume: l.volume,
+                })),
+                cachedStems: p.stemCache.map((s) => s.stemType),
+                hasOriginalClip: !!p.originalClipId,
+              };
+              output = JSON.stringify(state);
+              break;
+            }
           }
-          case "add_layer": {
-            const args = toolCall.input as {
-              stemType: StemType;
-              tags?: string;
-              topic?: string;
-            };
-            onAddLayer(args.stemType, args.tags || args.topic || "");
-            output = `Adding ${args.stemType} layer`;
-            break;
-          }
-          case "regenerate_layer": {
-            const args = toolCall.input as {
-              layerId: string;
-              newDescription: string;
-            };
-            onRegenerateLayer(args.layerId, args.newDescription);
-            output = `Regenerating layer with: "${args.newDescription}"`;
-            break;
-          }
-          case "remove_layer": {
-            const args = toolCall.input as { layerId: string };
-            onRemoveLayer(args.layerId);
-            output = `Removed layer ${args.layerId}`;
-            break;
-          }
-          case "set_lyrics": {
-            const args = toolCall.input as { lyrics: string };
-            onSetLyrics(args.lyrics);
-            output = "Lyrics updated";
-            break;
-          }
-          case "get_composition_state": {
-            const state = {
-              title: p.title,
-              vibePrompt: p.vibePrompt,
-              layerCount: p.layers.length,
-              layers: p.layers.map((l) => ({
-                id: l.id,
-                name: l.name,
-                stemType: l.stemType,
-                isMuted: l.isMuted,
-                isSoloed: l.isSoloed,
-                volume: l.volume,
-              })),
-              cachedStems: p.stemCache.map((s) => s.stemType),
-              hasOriginalClip: !!p.originalClipId,
-            };
-            output = JSON.stringify(state);
-            break;
-          }
+
+          addToolOutput({
+            toolCallId: toolCall.toolCallId,
+            tool: toolCall.toolName,
+            output,
+          });
+        } catch (err) {
+          addToolOutput({
+            toolCallId: toolCall.toolCallId,
+            tool: toolCall.toolName,
+            output: `Error: ${err instanceof Error ? err.message : "Tool execution failed"}`,
+          });
         }
-
-        // Explicitly provide tool result via addToolOutput (AI SDK v6 pattern)
-        addToolOutput({
-          toolCallId: toolCall.toolCallId,
-          tool: toolCall.toolName,
-          output,
-        });
       },
     });
 
@@ -239,6 +275,33 @@ export function ChatPanel({
         inputRef.current?.focus();
       }}
     >
+      {/* Model / Agent controls */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+        <select
+          value={agentMode ? "anthropic" : modelProvider}
+          disabled={agentMode}
+          onChange={(e) =>
+            onModelProviderChange(e.target.value as ModelProvider)
+          }
+          className="bg-white/5 text-xs text-white/70 border border-white/10 rounded px-2 py-1 focus:outline-none focus:border-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <option value="openai">GPT-5 Nano</option>
+          <option value="anthropic">Claude Opus</option>
+        </select>
+
+        <button
+          type="button"
+          onClick={() => onAgentModeChange(!agentMode)}
+          className={`text-xs px-2.5 py-1 rounded-full border transition-all ${
+            agentMode
+              ? "bg-[#c4f567]/20 border-[#c4f567]/50 text-[#c4f567]"
+              : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white/70"
+          }`}
+        >
+          {agentMode ? "Agent" : "Normal"}
+        </button>
+      </div>
+
       {/* Messages */}
       <div
         ref={scrollRef}

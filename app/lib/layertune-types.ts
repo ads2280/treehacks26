@@ -177,6 +177,47 @@ export const STEM_NAME_TO_TYPE: Record<string, StemType> = {
   Woodwinds: "woodwinds",
 };
 
+// --- Model Routing ---
+
+export type ModelProvider = "openai" | "anthropic";
+
+// --- Demucs (Modal) ---
+
+export interface DemucseStemResult {
+  vocals?: string;
+  drums?: string;
+  bass?: string;
+  other?: string;
+}
+
+export interface DemucsResponse {
+  job_id: string;
+  stems: DemucseStemResult;
+}
+
+export interface DemucsClientStem {
+  stemType: StemType;
+  audioUrl: string;
+  source: "demucs";
+}
+
+export interface DemucsClientResponse {
+  job_id: string;
+  stems: DemucsClientStem[];
+}
+
+/** Maps Demucs stem names to StemType. "other" deliberately excluded (no clean mapping). */
+export const DEMUCS_TO_STEM_TYPE: Record<string, StemType> = {
+  vocals: "vocals",
+  drums: "drums",
+  bass: "bass",
+};
+
+/** Demucs stem types we actively use (exclude "other") */
+export const DEMUCS_USABLE_STEMS: StemType[] = ["vocals", "drums", "bass"];
+
+// --- Smart Suggestions ---
+
 export interface SmartSuggestion {
   label: string;
   stemType: StemType;

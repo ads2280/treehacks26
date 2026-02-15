@@ -7,6 +7,7 @@ const ALLOWED_HOSTS = [
   "audiopipe.suno.ai",
   "suno.ai",
   "studio-api.prod.suno.com",
+  "modal.run",
 ];
 
 function isAllowedUrl(urlString: string): boolean {

@@ -5,7 +5,7 @@ import {
   SunoStemResponse,
   STEM_NAME_TO_TYPE,
 } from "@/lib/layertune-types";
-import type { StemType } from "@/lib/layertune-types";
+import type { StemType, DemucsClientResponse } from "@/lib/layertune-types";
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -134,4 +134,15 @@ export function stemTitleToType(title: string): StemType | undefined {
   }
 
   return undefined;
+}
+
+export function stemDemucs(
+  audioUrl: string,
+  clipId: string
+): Promise<DemucsClientResponse> {
+  return fetchJSON("/api/stem-demucs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ audio_url: audioUrl, clip_id: clipId }),
+  });
 }

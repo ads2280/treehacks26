@@ -124,6 +124,17 @@
   body {
     @apply bg-background text-foreground;
   }
+  button,
+  [role="button"],
+  a,
+  select,
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="submit"],
+  input[type="button"],
+  label[for] {
+    cursor: pointer;
+  }
 }
 
 @keyframes waveBar {
