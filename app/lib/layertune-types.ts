@@ -12,17 +12,23 @@ export type StemType =
   | "brass"
   | "woodwinds";
 
-export type ABState = "none" | "comparing" | "a_selected" | "b_selected";
-
 export type LayerGenerationStatus = "generating" | "separating" | "loading" | "error";
 
 export type GenerationPhase =
   | "idle"
   | "generating"
+  | "previewing"
   | "separating"
   | "loading"
   | "complete"
   | "error";
+
+export interface LayerVersion {
+  audioUrl: string;
+  sunoClipId: string | null;
+  prompt: string;
+  createdAt: string;
+}
 
 export interface Layer {
   id: string;
@@ -31,7 +37,7 @@ export interface Layer {
   stemType: StemType;
   prompt: string;
   audioUrl: string | null;
-  previousAudioUrl: string | null;
+
   volume: number;
   isMuted: boolean;
   isSoloed: boolean;
@@ -39,6 +45,8 @@ export interface Layer {
   sunoClipId: string | null;
   generationJobId: string | null;
   generationStatus?: LayerGenerationStatus;
+  versions: LayerVersion[];
+  versionCursor: number;
   createdAt: string;
 }
 
@@ -58,34 +66,22 @@ export interface Project {
   layers: Layer[];
   originalClipId: string | null;
   stemCache: CachedStem[];
-  abState: Record<string, ABState>;
+  lyrics: string;
+
   createdAt: string;
   updatedAt: string;
 }
 
 export interface SunoClip {
   id: string;
-  video_url: string;
-  audio_url: string;
-  image_url: string | null;
-  image_large_url: string | null;
-  is_video_pending: boolean;
-  major_model_version: string;
-  model_name: string;
-  metadata: Record<string, unknown>;
-  is_liked: boolean;
-  user_id: string;
-  display_name: string;
-  handle: string;
-  is_handle_updated: boolean;
-  is_trashed: boolean;
-  reaction: null;
-  created_at: string;
+  request_id?: string;
   status: "submitted" | "queued" | "streaming" | "complete" | "error";
   title: string;
-  play_count: number;
-  upvote_count: number;
-  is_public: boolean;
+  audio_url: string;
+  image_url?: string | null;
+  image_large_url?: string | null;
+  created_at: string;
+  metadata: Record<string, unknown>;
 }
 
 export interface SunoGenerateRequest {
@@ -139,12 +135,17 @@ export const STEM_LABELS: Record<StemType, string> = {
   woodwinds: "Woodwinds",
 };
 
+export const ALL_STEM_TYPES: StemType[] = [
+  "drums", "bass", "vocals", "guitar", "keyboard", "synth",
+  "backing_vocals", "percussion", "strings", "fx", "brass", "woodwinds",
+];
+
 export const SUNO_API_BASE =
   "https://studio-api.prod.suno.com/api/v2/external/hackathons";
 
 export const POLL_INTERVALS = {
-  clip: 5000,
-  stem: 8000,
+  clip: 2000,
+  stem: 3000,
 } as const;
 
 export const STEM_TYPE_TAGS: Record<StemType, string> = {
@@ -177,6 +178,47 @@ export const STEM_NAME_TO_TYPE: Record<string, StemType> = {
   Woodwinds: "woodwinds",
 };
 
+// --- Model Routing ---
+
+export type ModelProvider = "openai" | "anthropic";
+
+// --- Demucs (Modal) ---
+
+export interface DemucseStemResult {
+  vocals?: string;
+  drums?: string;
+  bass?: string;
+  other?: string;
+}
+
+export interface DemucsResponse {
+  job_id: string;
+  stems: DemucseStemResult;
+}
+
+export interface DemucsClientStem {
+  stemType: StemType;
+  audioUrl: string;
+  source: "demucs";
+}
+
+export interface DemucsClientResponse {
+  job_id: string;
+  stems: DemucsClientStem[];
+}
+
+/** Maps Demucs stem names to StemType. "other" deliberately excluded (no clean mapping). */
+export const DEMUCS_TO_STEM_TYPE: Record<string, StemType> = {
+  vocals: "vocals",
+  drums: "drums",
+  bass: "bass",
+};
+
+/** Demucs stem types we actively use (exclude "other") */
+export const DEMUCS_USABLE_STEMS: StemType[] = ["vocals", "drums", "bass"];
+
+// --- Smart Suggestions ---
+
 export interface SmartSuggestion {
   label: string;
   stemType: StemType;
@@ -191,3 +233,61 @@ export const SMART_SUGGESTIONS: SmartSuggestion[] = [
   { label: "+ Guitar", stemType: "guitar", defaultTags: "guitar, acoustic, strumming" },
   { label: "+ Synth", stemType: "synth", defaultTags: "synth, electronic, pad" },
 ];
+
+// --- Video Generation ---
+
+export type VideoGenerationPhase =
+  | "idle"
+  | "parsing_lyrics"
+  | "generating_backgrounds"
+  | "uploading_assets"
+  | "generating_video"
+  | "polling"
+  | "complete"
+  | "error";
+
+export type VideoTheme =
+  | "concert_stage"
+  | "music_video"
+  | "minimalist"
+  | "retro_vhs"
+  | "neon_city";
+
+export const VIDEO_THEME_LABELS: Record<VideoTheme, string> = {
+  concert_stage: "Concert Stage",
+  music_video: "Music Video",
+  minimalist: "Minimalist",
+  retro_vhs: "Retro VHS",
+  neon_city: "Neon City",
+};
+
+export const VIDEO_THEME_PROMPTS: Record<VideoTheme, string> = {
+  concert_stage: "A dramatic concert stage with spotlights, crowd silhouettes, and atmospheric haze",
+  music_video: "A cinematic music video set with professional lighting and stylized backdrop",
+  minimalist: "A clean, minimal environment with soft gradients and subtle geometric shapes",
+  retro_vhs: "A retro VHS aesthetic with scan lines, warm analog colors, and vintage grain",
+  neon_city: "A neon-lit cyberpunk cityscape at night with glowing signs and rain-slicked streets",
+};
+
+export interface VideoStyleConfig {
+  mode: "preset" | "custom" | "lyrics-driven" | "surprise";
+  theme: VideoTheme | null;
+  freeTextPrompt: string;
+}
+
+export interface HeyGenUploadResponse {
+  id: string;
+  image_key?: string;
+  url: string;
+}
+
+export interface HeyGenVideoResponse {
+  video_id: string;
+}
+
+export interface HeyGenVideoStatus {
+  status: "pending" | "processing" | "completed" | "failed";
+  video_url?: string;
+  thumbnail_url?: string;
+  duration?: number;
+}

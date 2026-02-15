@@ -1,7 +1,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useProject } from '../use-project';
-import { StemType } from '@/lib/layertune-types';
+import type { StemType, CachedStem } from '@/lib/layertune-types';
 
 // Mock localStorage
 const store: Record<string, string> = {};
@@ -17,13 +17,12 @@ beforeEach(() => {
   });
 });
 
-function makeLayer(overrides?: Partial<{ stemType: StemType; name: string }>) {
+function makeLayer(overrides?: Partial<{ stemType: StemType; name: string; audioUrl: string }>) {
   return {
     name: overrides?.name ?? 'Test Layer',
     stemType: overrides?.stemType ?? ('drums' as StemType),
     prompt: 'test',
-    audioUrl: 'https://example.com/audio.mp3',
-    previousAudioUrl: null,
+    audioUrl: overrides?.audioUrl ?? 'https://example.com/audio.mp3',
     volume: 0.8,
     isMuted: false,
     isSoloed: false,
@@ -31,6 +30,18 @@ function makeLayer(overrides?: Partial<{ stemType: StemType; name: string }>) {
     sunoClipId: null,
     generationJobId: null,
     projectId: 'test-project',
+    versions: [],
+    versionCursor: 0,
+  };
+}
+
+function makeCachedStem(stemType: StemType, audioUrl?: string): CachedStem {
+  return {
+    stemType,
+    audioUrl: audioUrl ?? `/api/audio-proxy?url=https%3A%2F%2Fcdn1.suno.ai%2F${stemType}.mp3`,
+    sunoClipId: `clip-${stemType}`,
+    fromClipId: 'original-clip',
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -121,100 +132,6 @@ describe('useProject', () => {
     expect(parsed.layers).toHaveLength(1);
   });
 
-  it('manages A/B state transitions', () => {
-    const { result } = renderHook(() => useProject());
-    let layerId = '';
-    act(() => {
-      layerId = result.current.addLayer(makeLayer());
-    });
-
-    // Start comparison
-    act(() => {
-      result.current.startABComparison(layerId);
-    });
-    expect(result.current.project.abState[layerId]).toBe('comparing');
-
-    // Keep B (new version)
-    act(() => {
-      result.current.keepB(layerId);
-    });
-    expect(result.current.project.abState[layerId]).toBe('none');
-  });
-
-  it('keepA reverts to previous audio', () => {
-    const { result } = renderHook(() => useProject());
-    let layerId = '';
-    act(() => {
-      layerId = result.current.addLayer({
-        ...makeLayer(),
-        audioUrl: 'new.mp3',
-        previousAudioUrl: 'old.mp3',
-      });
-    });
-    act(() => {
-      result.current.startABComparison(layerId);
-    });
-    act(() => {
-      result.current.keepA(layerId);
-    });
-    const layer = result.current.project.layers[0];
-    expect(layer.audioUrl).toBe('old.mp3');
-    expect(layer.previousAudioUrl).toBeNull();
-    expect(result.current.project.abState[layerId]).toBe('none');
-  });
-
-  it('keepB clears previousAudioUrl and keeps current audio', () => {
-    const { result } = renderHook(() => useProject());
-    let layerId = '';
-    act(() => {
-      layerId = result.current.addLayer({
-        ...makeLayer(),
-        audioUrl: 'new.mp3',
-        previousAudioUrl: 'old.mp3',
-      });
-    });
-    act(() => {
-      result.current.startABComparison(layerId);
-    });
-    act(() => {
-      result.current.keepB(layerId);
-    });
-    const layer = result.current.project.layers[0];
-    expect(layer.audioUrl).toBe('new.mp3');
-    expect(layer.previousAudioUrl).toBeNull();
-    expect(result.current.project.abState[layerId]).toBe('none');
-  });
-
-  it('keepA is no-op when previousAudioUrl is null', () => {
-    const { result } = renderHook(() => useProject());
-    let layerId = '';
-    act(() => {
-      layerId = result.current.addLayer(makeLayer());
-    });
-    const audioBefore = result.current.project.layers[0].audioUrl;
-    act(() => {
-      result.current.keepA(layerId);
-    });
-    // audioUrl should remain unchanged since previousAudioUrl was null
-    expect(result.current.project.layers[0].audioUrl).toBe(audioBefore);
-  });
-
-  it('setABState directly sets state for a layer', () => {
-    const { result } = renderHook(() => useProject());
-    let layerId = '';
-    act(() => {
-      layerId = result.current.addLayer(makeLayer());
-    });
-    act(() => {
-      result.current.setABState(layerId, 'comparing');
-    });
-    expect(result.current.project.abState[layerId]).toBe('comparing');
-    act(() => {
-      result.current.setABState(layerId, 'none');
-    });
-    expect(result.current.project.abState[layerId]).toBe('none');
-  });
-
   it('resets project', () => {
     const { result } = renderHook(() => useProject());
     act(() => {
@@ -226,5 +143,194 @@ describe('useProject', () => {
     });
     expect(result.current.project.layers).toHaveLength(0);
     expect(result.current.project.vibePrompt).toBe('');
+  });
+});
+
+describe('consumeCachedStem (Bug #6 + #9 fix)', () => {
+  it('returns the matching stem and removes it from cache', () => {
+    const { result } = renderHook(() => useProject());
+    act(() => {
+      result.current.appendStemCache([
+        makeCachedStem('guitar'),
+        makeCachedStem('bass'),
+        makeCachedStem('vocals'),
+      ]);
+    });
+    expect(result.current.project.stemCache).toHaveLength(3);
+
+    let found: CachedStem | null = null;
+    act(() => {
+      found = result.current.consumeCachedStem('bass');
+    });
+
+    // Should return the bass stem
+    expect(found).not.toBeNull();
+    expect(found!.stemType).toBe('bass');
+    expect(found!.audioUrl).toContain('bass.mp3');
+
+    // Should be removed from cache, others remain
+    expect(result.current.project.stemCache).toHaveLength(2);
+    expect(result.current.project.stemCache.map((s) => s.stemType)).toEqual(['guitar', 'vocals']);
+  });
+
+  it('returns null when stem type is not in cache', () => {
+    const { result } = renderHook(() => useProject());
+    act(() => {
+      result.current.appendStemCache([makeCachedStem('guitar')]);
+    });
+
+    let found: CachedStem | null = null;
+    act(() => {
+      found = result.current.consumeCachedStem('synth');
+    });
+
+    expect(found).toBeNull();
+    // Cache should be unchanged
+    expect(result.current.project.stemCache).toHaveLength(1);
+  });
+
+  it('returns null for empty cache', () => {
+    const { result } = renderHook(() => useProject());
+
+    let found: CachedStem | null = null;
+    act(() => {
+      found = result.current.consumeCachedStem('drums');
+    });
+
+    expect(found).toBeNull();
+  });
+
+  it('skips entries with empty audioUrl', () => {
+    const { result } = renderHook(() => useProject());
+    // Manually set cache with a broken entry (bypass appendStemCache validation)
+    act(() => {
+      result.current.setStemCache([
+        { stemType: 'guitar', audioUrl: '/api/audio-proxy?url=', sunoClipId: 'x', fromClipId: 'y', createdAt: '' },
+        makeCachedStem('bass'),
+      ]);
+    });
+
+    let found: CachedStem | null = null;
+    act(() => {
+      // guitar has broken URL — should be skipped
+      found = result.current.consumeCachedStem('guitar');
+    });
+    expect(found).toBeNull();
+    // Cache should be unchanged (broken entry not removed)
+    expect(result.current.project.stemCache).toHaveLength(2);
+
+    // bass should still work
+    act(() => {
+      found = result.current.consumeCachedStem('bass');
+    });
+    expect(found).not.toBeNull();
+    expect(found!.stemType).toBe('bass');
+  });
+
+  it('does not clobber stems added concurrently (Bug #9 race condition)', () => {
+    const { result } = renderHook(() => useProject());
+
+    // Simulate: initial cache has bass + guitar
+    act(() => {
+      result.current.appendStemCache([
+        makeCachedStem('bass'),
+        makeCachedStem('guitar'),
+      ]);
+    });
+    expect(result.current.project.stemCache).toHaveLength(2);
+
+    // Now simulate the race: append synth AND consume bass in the same act()
+    // (simulates background polling + user action happening close together)
+    let found: CachedStem | null = null;
+    act(() => {
+      // Background polling adds synth
+      result.current.appendStemCache([makeCachedStem('synth')]);
+      // User consumes bass
+      found = result.current.consumeCachedStem('bass');
+    });
+
+    // Bass should have been found and returned
+    expect(found).not.toBeNull();
+    expect(found!.stemType).toBe('bass');
+
+    // Both guitar AND synth should remain — synth must NOT be clobbered
+    const remaining = result.current.project.stemCache.map((s) => s.stemType);
+    expect(remaining).toContain('guitar');
+    expect(remaining).toContain('synth');
+    expect(remaining).not.toContain('bass');
+    expect(result.current.project.stemCache).toHaveLength(2);
+  });
+
+  it('consuming multiple stems sequentially works correctly', () => {
+    const { result } = renderHook(() => useProject());
+    act(() => {
+      result.current.appendStemCache([
+        makeCachedStem('drums'),
+        makeCachedStem('bass'),
+        makeCachedStem('guitar'),
+        makeCachedStem('vocals'),
+      ]);
+    });
+
+    let d: CachedStem | null = null;
+    let b: CachedStem | null = null;
+    let g: CachedStem | null = null;
+
+    act(() => { d = result.current.consumeCachedStem('drums'); });
+    act(() => { b = result.current.consumeCachedStem('bass'); });
+    act(() => { g = result.current.consumeCachedStem('guitar'); });
+
+    expect(d!.stemType).toBe('drums');
+    expect(b!.stemType).toBe('bass');
+    expect(g!.stemType).toBe('guitar');
+
+    // Only vocals should remain
+    expect(result.current.project.stemCache).toHaveLength(1);
+    expect(result.current.project.stemCache[0].stemType).toBe('vocals');
+  });
+});
+
+describe('appendStemCache', () => {
+  it('adds stems to empty cache', () => {
+    const { result } = renderHook(() => useProject());
+    act(() => {
+      result.current.appendStemCache([
+        makeCachedStem('guitar'),
+        makeCachedStem('bass'),
+      ]);
+    });
+    expect(result.current.project.stemCache).toHaveLength(2);
+  });
+
+  it('deduplicates by stemType', () => {
+    const { result } = renderHook(() => useProject());
+    act(() => {
+      result.current.appendStemCache([makeCachedStem('guitar')]);
+    });
+    act(() => {
+      // Try to add guitar again — should be rejected
+      result.current.appendStemCache([makeCachedStem('guitar')]);
+    });
+    expect(result.current.project.stemCache).toHaveLength(1);
+  });
+
+  it('rejects entries with broken audioUrl', () => {
+    const { result } = renderHook(() => useProject());
+    act(() => {
+      result.current.appendStemCache([
+        { stemType: 'guitar', audioUrl: '/api/audio-proxy?url=', sunoClipId: 'x', fromClipId: 'y', createdAt: '' },
+        { stemType: 'bass', audioUrl: '', sunoClipId: 'x', fromClipId: 'y', createdAt: '' },
+      ]);
+    });
+    expect(result.current.project.stemCache).toHaveLength(0);
+  });
+
+  it('multiple appends accumulate correctly', () => {
+    const { result } = renderHook(() => useProject());
+    act(() => { result.current.appendStemCache([makeCachedStem('drums')]); });
+    act(() => { result.current.appendStemCache([makeCachedStem('bass')]); });
+    act(() => { result.current.appendStemCache([makeCachedStem('guitar')]); });
+    expect(result.current.project.stemCache).toHaveLength(3);
+    expect(result.current.project.stemCache.map((s) => s.stemType)).toEqual(['drums', 'bass', 'guitar']);
   });
 });

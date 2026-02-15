@@ -1,4 +1,10 @@
 import { syllable } from "syllable";
+import { isStructureTag } from "@/lib/lyrics-utils";
+
+interface LyricLine {
+  id: string;
+  text: string;
+}
 
 export interface HookCandidate {
   line_id: string;
@@ -6,54 +12,71 @@ export interface HookCandidate {
   reasons: string[];
 }
 
-export function detectHookPotential(lines: { id: string; text: string }[]): HookCandidate[] {
+function normalizeLine(text: string): string {
+  return text.toLowerCase().trim().replace(/[^\w\s']/g, "");
+}
+
+function isStrongHookLine(text: string): boolean {
+  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  const syllables = syllable(text);
+  return wordCount >= 3 && wordCount <= 10 && syllables >= 4 && syllables <= 12;
+}
+
+function hasMemorableLanguage(text: string): boolean {
+  const patterns = [
+    /\b(i|you|we)\b/i,
+    /\b(tonight|forever|always|never|again|alive|free|fire|heart)\b/i,
+    /!|\?/,
+  ];
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function hasInternalEcho(text: string): boolean {
+  const cleaned = normalizeLine(text);
+  if (!cleaned) return false;
+  return /(.+)\b.*\1/i.test(cleaned) && cleaned.length > 3;
+}
+
+export function detectHookPotential(lines: LyricLine[]): HookCandidate[] {
   const candidates: HookCandidate[] = [];
-  const textCounts = new Map<string, string[]>();
+  const frequency = new Map<string, number>();
 
-  for (const line of lines) {
-    const normalized = line.text.toLowerCase().trim();
-    const ids = textCounts.get(normalized) ?? [];
-    ids.push(line.id);
-    textCounts.set(normalized, ids);
+  const normalizedLines = lines
+    .filter((line) => line.text.trim() && !isStructureTag(line.text))
+    .map((line) => ({
+      ...line,
+      normalized: normalizeLine(line.text),
+    }));
+
+  for (const line of normalizedLines) {
+    if (!line.normalized) continue;
+    frequency.set(line.normalized, (frequency.get(line.normalized) ?? 0) + 1);
   }
 
-  const seen = new Set<string>();
+  for (const line of normalizedLines) {
+    if (!isStrongHookLine(line.text)) continue;
 
-  for (const line of lines) {
     const reasons: string[] = [];
+    const repeats = frequency.get(line.normalized) ?? 0;
+    if (repeats >= 2) reasons.push("already repeated naturally");
+    if (hasMemorableLanguage(line.text)) reasons.push("strong emotional wording");
+    if (hasInternalEcho(line.text)) reasons.push("has internal repetition");
+
     const words = line.text.trim().split(/\s+/).filter(Boolean);
-    const normalized = line.text.toLowerCase().trim();
-
-    if (words.length === 0) continue;
-    if (words.length > 10) continue;
-    if (seen.has(normalized)) continue;
-
-    if (words.length >= 3 && words.length <= 6) {
-      reasons.push("short and catchy");
+    const uniqueWords = new Set(words.map((w) => w.toLowerCase().replace(/[^a-z]/g, "")));
+    const imageryWords = ["night", "fire", "dream", "heart", "storm", "city", "light", "shadow"];
+    if (imageryWords.some((word) => uniqueWords.has(word))) {
+      reasons.push("contains vivid imagery");
     }
 
-    const repeats = textCounts.get(normalized);
-    if (repeats && repeats.length > 1) {
-      reasons.push("already repeats - natural hook");
-    }
+    if (reasons.length < 2) continue;
 
-    const wordSet = new Set(words.map((w) => w.toLowerCase()));
-    if (wordSet.size < words.length && words.length > 2) {
-      reasons.push("has internal repetition");
-    }
-
-    const endWord = words[words.length - 1].toLowerCase().replace(/[^a-z]/g, "");
-    if (syllable(endWord) === 1 && endWord.length >= 2) {
-      reasons.push("strong ending");
-    }
-
-    const hasRepetition = reasons.some((r) => r.includes("repeats"));
-    const threshold = hasRepetition ? 2 : 3;
-    if (reasons.length >= threshold) {
-      candidates.push({ line_id: line.id, text: line.text, reasons });
-      seen.add(normalized);
-    }
+    candidates.push({
+      line_id: line.id,
+      text: line.text.trim(),
+      reasons,
+    });
   }
 
-  return candidates;
+  return candidates.slice(0, 5);
 }

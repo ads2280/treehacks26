@@ -7,15 +7,16 @@ const ALLOWED_HOSTS = [
   "audiopipe.suno.ai",
   "suno.ai",
   "studio-api.prod.suno.com",
+  ...(process.env.MODAL_DEMUCS_URL
+    ? [new URL(process.env.MODAL_DEMUCS_URL).hostname]
+    : []),
 ];
 
 function isAllowedUrl(urlString: string): boolean {
   try {
     const parsed = new URL(urlString);
-    return (
-      (parsed.protocol === "https:" || parsed.protocol === "http:") &&
-      ALLOWED_HOSTS.some((host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`))
-    );
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+    return ALLOWED_HOSTS.some((host) => parsed.hostname === host);
   } catch {
     return false;
   }
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
 
   if (!isAllowedUrl(url)) {
     return NextResponse.json(
-      { error: "URL not allowed. Only Suno audio URLs are permitted." },
+      { error: "URL not allowed. Only allowlisted audio hosts are permitted." },
       { status: 403 }
     );
   }

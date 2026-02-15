@@ -41,6 +41,7 @@ ${numbered}
 ${annotationContext}`;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function buildPunchPrompt(doc: LyricDoc, annotations?: Annotations): string {
   const numbered = doc.lines.map((l) => `${l.id}: ${l.text}`).join("\n");
 
@@ -105,6 +106,7 @@ ${numbered}
 ${clicheContext}`;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function buildHookifyPrompt(doc: LyricDoc, annotations?: Annotations): string {
   return `Make the hook catchier:\n${doc.lines.map((l) => l.text).join("\n")}`;
 }

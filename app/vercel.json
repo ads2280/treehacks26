@@ -16,6 +16,27 @@
     },
     "app/api/audio-proxy/route.ts": {
       "maxDuration": 10
+    },
+    "app/api/stem-demucs/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/heygen/upload/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/heygen/generate/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/heygen/status/route.ts": {
+      "maxDuration": 10
+    },
+    "app/api/heygen/streaming-token/route.ts": {
+      "maxDuration": 10
+    },
+    "app/api/generate-backgrounds/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/video/upload/route.ts": {
+      "maxDuration": 30
     }
   }
 }

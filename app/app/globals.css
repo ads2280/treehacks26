@@ -124,6 +124,17 @@
   body {
     @apply bg-background text-foreground;
   }
+  button,
+  [role="button"],
+  a,
+  select,
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="submit"],
+  input[type="button"],
+  label[for] {
+    cursor: pointer;
+  }
 }
 
 @keyframes waveBar {
@@ -179,6 +190,46 @@
   background-image:
     repeating-linear-gradient(90deg, rgba(255,255,255,0.06) 0px, rgba(255,255,255,0.06) 1px, transparent 1px, transparent 100px),
     repeating-linear-gradient(90deg, rgba(255,255,255,0.12) 0px, rgba(255,255,255,0.12) 1px, transparent 1px, transparent 400px);
+}
+
+/* Chat markdown — compact styles for assistant messages */
+.chat-markdown p {
+  margin: 0;
+}
+.chat-markdown p + p {
+  margin-top: 0.5em;
+}
+.chat-markdown strong {
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 600;
+}
+.chat-markdown em {
+  color: rgba(255, 255, 255, 0.7);
+}
+.chat-markdown ul, .chat-markdown ol {
+  margin: 0.35em 0;
+  padding-left: 1.25em;
+}
+.chat-markdown li {
+  margin: 0.15em 0;
+}
+.chat-markdown li::marker {
+  color: rgba(196, 245, 103, 0.5);
+}
+.chat-markdown code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3 {
+  font-size: inherit;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  margin: 0.5em 0 0.25em;
+}
+.chat-markdown h1:first-child, .chat-markdown h2:first-child, .chat-markdown h3:first-child {
+  margin-top: 0;
 }
 
 /* waveform-playlist native timescale */

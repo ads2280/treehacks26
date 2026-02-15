@@ -42,7 +42,7 @@ async function runLLMProduce(doc: LyricDoc, annotations: Annotations | undefined
   const prompt = promptBuilder(doc, annotations);
 
   const { text } = await generateText({
-    model: openai("gpt-4o"),
+    model: openai("gpt-5-nano"),
     system: "You are a skilled songwriter and lyric editor. Respond with valid JSON only.",
     prompt,
     temperature: 0.7,

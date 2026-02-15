@@ -1,6 +1,8 @@
 import { openai } from "@ai-sdk/openai";
+import { anthropic } from "@ai-sdk/anthropic";
 import { convertToModelMessages, streamText, UIMessage } from "ai";
 import { z } from "zod";
+import type { ModelProvider } from "@/lib/layertune-types";
 
 export const maxDuration = 60;
 
@@ -19,7 +21,7 @@ const STEM_TYPES = [
   "woodwinds",
 ] as const;
 
-const systemPrompt = `You are ProduceThing AI, a creative music production assistant built into a DAW-like studio. You help users compose music layer by layer through conversation.
+const normalSystemPrompt = `You are ProduceThing AI, a creative music production assistant built into a DAW-like studio. You help users compose music layer by layer through conversation.
 
 Your personality: encouraging, knowledgeable about music production, concise. You speak like a cool producer friend — not overly formal, but professional.
 
@@ -40,6 +42,15 @@ Workflow:
 
 Tag tips: Place the most important tags first. Use genre + instrument + mood combos like "lofi, hip-hop, chill, piano, rainy day" or "trap, 808s, dark, aggressive, bass-heavy".
 
+## Response Pattern — ALWAYS declare intent before tool calls
+
+CRITICAL: Always briefly state what you're about to do BEFORE making any tool call. Never start your response with a silent tool call — the user must see what's happening first. One sentence is enough.
+
+Examples:
+- User: "make me a lofi beat" → You: "Let me cook up a chill lofi track for you." → then call generate_track
+- User: "add bass" → You: "Adding a bass layer to your mix." → then call add_layer
+- User: "change the drums" → You: "I'll regenerate the drums with a fresh take." → then call regenerate_layer
+
 ## Layer Targeting
 
 When a message starts with "[Editing LayerName layer (id: X, type: Y)]:", the user is targeting that specific layer. Use the provided id as layerId and the type to call regenerate_layer or other appropriate tools. Do NOT call get_composition_state first — you already have the layer info.
@@ -58,97 +69,162 @@ Each tool call result is piped into context for the next decision. Just call too
 
 Keep responses short (1-3 sentences) unless the user asks for detailed explanation. After calling a tool, briefly explain what you did.`;
 
+const agentSystemPrompt = `You are ProduceThing AI in **Agent Mode** — an autonomous music producer that builds full compositions from a single prompt.
+
+Your personality: confident, knowledgeable, decisive. You act like a professional producer who takes a creative brief and delivers a full arrangement.
+
+You have the same tools as normal mode:
+- generate_track: Generate a full track from a vibe description + tags.
+- add_layer: Add a specific instrument stem to the composition.
+- regenerate_layer: Regenerate a layer with new description/tags. Enables A/B comparison.
+- remove_layer: Remove a layer.
+- set_lyrics: Write lyrics with structure tags [Verse], [Chorus], [Bridge], [Intro], [Outro].
+- get_composition_state: Read current layers, cached stems, project info.
+
+## Agent Loop: Plan → Execute → Observe → Reflect
+
+When the user describes a composition, you autonomously build it:
+
+### 1. PLAN
+Think aloud: analyze the request. Decide which layers the genre/vibe needs.
+Example: "Lo-fi hip-hop track → I'll need drums for the beat, bass for groove, keyboard for that nostalgic piano, and maybe synth pads for atmosphere."
+
+### 2. EXECUTE
+Call generate_track first with well-chosen tags. The tool result will tell you which stems are cached and available. Then call add_layer for each layer you planned.
+
+### 3. OBSERVE
+Read each tool result carefully. It tells you:
+- Which stems were cached vs newly generated
+- How many layers exist now
+- What stems remain available
+
+### 4. REFLECT
+After adding all planned layers, summarize what you built:
+"Your track has 4 layers: Drums, Bass, Keyboard, Synth. The lo-fi piano and 808 bass give it that nostalgic feel. Want me to add vocals, adjust any layer, or try a different vibe?"
+
+## Rules
+- Chain tool calls without stopping — do NOT ask "should I continue?" between steps. Just execute.
+- CRITICAL: Before EVERY tool call, write a brief sentence explaining what you're about to do and why. Never emit a silent tool call. The user must see your reasoning streamed in real-time before each action. Example: "Starting with the foundation — generating a lofi beat with mellow piano and tape hiss." → then call generate_track. "Now adding bass for that deep groove." → then call add_layer.
+- After generate_track, the result lists cached stems. Use add_layer for each planned layer — cached stems load instantly.
+- If the user asks for lyrics, ALWAYS use set_lyrics. Never write lyrics as plain text.
+- When a message starts with "[Editing LayerName layer (id: X, type: Y)]:", target that specific layer.
+- Tag tips: 4-8 tags, most important first. Genre + instrument + mood combos.
+- When done, always suggest next steps (add more layers, regenerate, adjust).`;
+
+function selectModel(modelProvider: ModelProvider, agentMode: boolean) {
+  if (agentMode) {
+    return anthropic("claude-opus-4-6");
+  }
+  if (modelProvider === "anthropic") {
+    return anthropic("claude-opus-4-6");
+  }
+  return openai("gpt-5");
+}
+
+const tools = {
+  generate_track: {
+    description:
+      "Generate a new music track from scratch. Use when the user describes a vibe, genre, or wants to start fresh.",
+    inputSchema: z.object({
+      topic: z
+        .string()
+        .describe("Short description of the music vibe/genre"),
+      tags: z
+        .string()
+        .describe(
+          "Comma-separated Suno-style tags (4-8 tags). Genre, instruments, mood. Most important first."
+        ),
+      make_instrumental: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("If true, generate without vocals"),
+      negative_tags: z
+        .string()
+        .optional()
+        .describe("Tags to avoid in generation"),
+      lyrics: z
+        .string()
+        .optional()
+        .describe(
+          "Custom lyrics with structure tags like [Verse], [Chorus], etc."
+        ),
+    }),
+  },
+  add_layer: {
+    description:
+      "Add a specific instrument layer to the existing composition. Requires a track to be generated first.",
+    inputSchema: z.object({
+      stemType: z
+        .enum(STEM_TYPES)
+        .describe("The instrument/stem type to add"),
+      tags: z
+        .string()
+        .optional()
+        .describe("Style tags for this layer"),
+      topic: z
+        .string()
+        .optional()
+        .describe("Description for this layer"),
+    }),
+  },
+  regenerate_layer: {
+    description:
+      "Regenerate a specific layer with a new description. User can A/B compare the old and new versions.",
+    inputSchema: z.object({
+      layerId: z.string().describe("The ID of the layer to regenerate"),
+      newDescription: z
+        .string()
+        .describe("Description of how the layer should change"),
+      tags: z
+        .string()
+        .optional()
+        .describe("New style tags for regeneration"),
+    }),
+  },
+  remove_layer: {
+    description: "Remove a layer from the composition.",
+    inputSchema: z.object({
+      layerId: z.string().describe("The ID of the layer to remove"),
+    }),
+  },
+  set_lyrics: {
+    description:
+      "Set or update lyrics for the composition. Use structure tags like [Verse], [Chorus], [Bridge], [Intro], [Outro].",
+    inputSchema: z.object({
+      lyrics: z
+        .string()
+        .describe(
+          "The lyrics text with structure tags like [Verse], [Chorus], etc."
+        ),
+    }),
+  },
+  get_composition_state: {
+    description:
+      "Get the current state of the composition including all layers, their types, and settings.",
+    inputSchema: z.object({}),
+  },
+};
+
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json();
+  const {
+    messages,
+    modelProvider = "openai",
+    agentMode = false,
+  }: {
+    messages: UIMessage[];
+    modelProvider?: ModelProvider;
+    agentMode?: boolean;
+  } = await req.json();
+
+  const model = selectModel(modelProvider, agentMode);
+  const system = agentMode ? agentSystemPrompt : normalSystemPrompt;
 
   const result = streamText({
-    model: openai("gpt-4o-mini"),
-    system: systemPrompt,
+    model,
+    system,
     messages: await convertToModelMessages(messages),
-    tools: {
-      generate_track: {
-        description:
-          "Generate a new music track from scratch. Use when the user describes a vibe, genre, or wants to start fresh.",
-        inputSchema: z.object({
-          topic: z
-            .string()
-            .describe("Short description of the music vibe/genre"),
-          tags: z
-            .string()
-            .describe(
-              "Comma-separated Suno-style tags (4-8 tags). Genre, instruments, mood. Most important first."
-            ),
-          make_instrumental: z
-            .boolean()
-            .optional()
-            .default(false)
-            .describe("If true, generate without vocals"),
-          negative_tags: z
-            .string()
-            .optional()
-            .describe("Tags to avoid in generation"),
-          lyrics: z
-            .string()
-            .optional()
-            .describe(
-              "Custom lyrics with structure tags like [Verse], [Chorus], etc."
-            ),
-        }),
-      },
-      add_layer: {
-        description:
-          "Add a specific instrument layer to the existing composition. Requires a track to be generated first.",
-        inputSchema: z.object({
-          stemType: z
-            .enum(STEM_TYPES)
-            .describe("The instrument/stem type to add"),
-          tags: z
-            .string()
-            .optional()
-            .describe("Style tags for this layer"),
-          topic: z
-            .string()
-            .optional()
-            .describe("Description for this layer"),
-        }),
-      },
-      regenerate_layer: {
-        description:
-          "Regenerate a specific layer with a new description. User can A/B compare the old and new versions.",
-        inputSchema: z.object({
-          layerId: z.string().describe("The ID of the layer to regenerate"),
-          newDescription: z
-            .string()
-            .describe("Description of how the layer should change"),
-          tags: z
-            .string()
-            .optional()
-            .describe("New style tags for regeneration"),
-        }),
-      },
-      remove_layer: {
-        description: "Remove a layer from the composition.",
-        inputSchema: z.object({
-          layerId: z.string().describe("The ID of the layer to remove"),
-        }),
-      },
-      set_lyrics: {
-        description:
-          "Set or update lyrics for the composition. Use structure tags like [Verse], [Chorus], [Bridge], [Intro], [Outro].",
-        inputSchema: z.object({
-          lyrics: z
-            .string()
-            .describe(
-              "The lyrics text with structure tags like [Verse], [Chorus], etc."
-            ),
-        }),
-      },
-      get_composition_state: {
-        description:
-          "Get the current state of the composition including all layers, their types, and settings.",
-        inputSchema: z.object({}),
-      },
-    },
+    tools,
   });
 
   return result.toUIMessageStreamResponse({
