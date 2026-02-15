@@ -307,3 +307,14 @@ Maintain a running list of bugs found and how they were debugged. This builds in
 - **Debug chain**: Checked localStorage → bass was in stemCache → consumeCachedStem called → returns null → falls through to API → inspected code: uses `let found = null` set inside `setProject((prev) => { found = match; ... })` → React 18+ batches state updates, the updater function runs during rendering, NOT synchronously at the `setProject` call site → `return found` executes before the updater runs → always null
 - **Fix**: Replaced `consumeCachedStem()` with direct `project.stemCache.find()` read + `setStemCache(filtered)` in `handleAddLayer`. Reading current state is synchronous and reliable.
 - **Lesson**: Never rely on side-effects inside React `setState` updater functions to return values. The updater is deferred. Read state directly from the current render's state variable instead.
+
+### Bug #7: AI SDK v6 MissingToolResultsError — onToolCall return value ignored
+- **Symptom**: First chat message (tool call) succeeded but auto-send of tool results failed with `AI_MissingToolResultsError: Tool result is missing for tool call`. Subsequent messages got 503.
+- **Debug chain**: Server log showed error during second `/api/chat` call → `convertToModelMessages` found tool_call without tool_result → client was returning from `onToolCall` but AI SDK v6 ignores the return value → tool result never stored in message → auto-send sent incomplete messages
+- **Fix**: Destructure `addToolOutput` from `useChat()` return. In `onToolCall`, call `addToolOutput({ toolCallId: toolCall.toolCallId, output })` explicitly instead of returning a value.
+- **Lesson**: In AI SDK v6, `onToolCall` return values do NOT set tool results. Must use `addToolOutput()` explicitly. Do NOT await `addToolOutput` (causes deadlocks).
+
+### Bug #8: AI writes lyrics as text instead of calling set_lyrics tool
+- **Symptom**: User asked for lyrics → AI wrote them inline in chat text instead of calling the `set_lyrics` tool → lyrics panel stayed empty
+- **Fix**: Strengthened system prompt: "IMPORTANT: When the user asks for lyrics, ALWAYS use the set_lyrics tool. Never write lyrics as plain text."
+- **Lesson**: GPT-4o-mini needs explicit instructions to prefer tool calls over inline responses for content-heavy tools.

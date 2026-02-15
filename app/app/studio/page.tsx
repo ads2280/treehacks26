@@ -550,7 +550,7 @@ function StudioApp() {
         />
 
         {/* Center: Timeline */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden relative">
           <div className="flex-1 flex overflow-hidden">
             {layers.length > 0 && (
               <LayerSidebar
@@ -574,6 +574,7 @@ function StudioApp() {
               playlistContainerRef={playlistContainerRef}
             />
           </div>
+          <GenerationOverlay phase={generationPhase} />
         </div>
 
         {/* Right: Lyrics Panel */}
@@ -622,7 +623,6 @@ function StudioApp() {
         onConfirm={handleDelete}
       />
 
-      <GenerationOverlay phase={generationPhase} />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { anthropic } from "@ai-sdk/anthropic";
+import { openai } from "@ai-sdk/openai";
 import { convertToModelMessages, streamText, UIMessage } from "ai";
 import { z } from "zod";
 
@@ -34,8 +34,9 @@ You have access to tools that control the studio:
 Workflow:
 1. When a user describes a vibe, call generate_track with appropriate topic and Suno-style tags (4-8 tags work best).
 2. After generation, suggest adding more layers to build the track.
-3. For lyrics, use set_lyrics with proper structure tags.
+3. IMPORTANT: When the user asks for lyrics, ALWAYS use the set_lyrics tool to write them. Never write lyrics as plain text in your response. The set_lyrics tool populates the lyrics editor panel so users can edit them.
 4. Always be ready to regenerate or remove layers based on feedback.
+5. Before adding or regenerating layers, call get_composition_state to check current layers.
 
 Tag tips: Place the most important tags first. Use genre + instrument + mood combos like "lofi, hip-hop, chill, piano, rainy day" or "trap, 808s, dark, aggressive, bass-heavy".
 
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
   const { messages }: { messages: UIMessage[] } = await req.json();
 
   const result = streamText({
-    model: anthropic("claude-sonnet-4-5-20250929"),
+    model: openai("gpt-4o-mini"),
     system: systemPrompt,
     messages: await convertToModelMessages(messages),
     tools: {
@@ -134,5 +135,10 @@ export async function POST(req: Request) {
     },
   });
 
-  return result.toUIMessageStreamResponse();
+  return result.toUIMessageStreamResponse({
+    onError: (error) => {
+      if (error instanceof Error) return error.message;
+      return "An unexpected error occurred";
+    },
+  });
 }

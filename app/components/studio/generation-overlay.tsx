@@ -7,6 +7,13 @@ interface GenerationOverlayProps {
   phase: GenerationPhase;
 }
 
+// Estimated durations for each phase (seconds)
+const PHASE_ESTIMATES: Record<string, number> = {
+  generating: 120, // ~2 min for Suno clip
+  separating: 180, // ~3 min for stem separation
+  loading: 5, // Quick audio load
+};
+
 const PHASE_MESSAGES: Record<string, { label: string; sub: string }> = {
   generating: {
     label: "Generating your track",
@@ -29,7 +36,7 @@ function seededRandom(seed: number) {
 
 function WaveformAnimation({ barCount = 32 }: { barCount?: number }) {
   return (
-    <div className="flex items-center justify-center gap-[3px] h-20" aria-hidden="true">
+    <div className="flex items-center justify-center gap-[3px] h-16" aria-hidden="true">
       {Array.from({ length: barCount }).map((_, i) => (
         <span
           key={i}
@@ -45,36 +52,70 @@ function WaveformAnimation({ barCount = 32 }: { barCount?: number }) {
   );
 }
 
-function ProgressDots({ phase }: { phase: GenerationPhase }) {
-  const steps = ["generating", "separating", "loading"];
-  const currentIdx = steps.indexOf(phase);
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function ProgressBar({ phase }: { phase: GenerationPhase }) {
+  const steps = ["generating", "separating", "loading"] as const;
+  const currentIdx = steps.indexOf(phase as (typeof steps)[number]);
+  const [elapsed, setElapsed] = useState(0);
+  const phaseStartRef = useRef(Date.now());
+
+  // Reset timer when phase changes
+  useEffect(() => {
+    phaseStartRef.current = Date.now();
+    setElapsed(0);
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - phaseStartRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [phase]);
+
+  const estimate = PHASE_ESTIMATES[phase] || 60;
+  // Asymptotic progress: approaches 95% but never reaches 100%
+  const phaseProgress = Math.min(0.95, 1 - Math.exp(-elapsed / (estimate * 0.5)));
+  // Overall progress: combine completed phases + current phase progress
+  const overallProgress = ((currentIdx + phaseProgress) / steps.length) * 100;
 
   return (
-    <div className="flex items-center gap-2 mt-5">
-      {steps.map((step, i) => {
-        const isActive = i === currentIdx;
-        const isComplete = i < currentIdx;
-        return (
-          <div key={step} className="flex items-center gap-2">
-            <div
-              className={`w-2 h-2 rounded-full transition-all duration-500 ${
-                isActive
-                  ? "bg-[#c4f567] scale-125 shadow-[0_0_8px_rgba(196,245,103,0.6)]"
-                  : isComplete
-                  ? "bg-[#c4f567]/60"
-                  : "bg-white/15"
-              }`}
-            />
-            {i < steps.length - 1 && (
-              <div
-                className={`w-8 h-px transition-colors duration-500 ${
-                  isComplete ? "bg-[#c4f567]/40" : "bg-white/10"
+    <div className="w-full mt-5 space-y-2">
+      {/* Progress bar */}
+      <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-[#c4f567] rounded-full transition-all duration-1000 ease-out"
+          style={{ width: `${overallProgress}%` }}
+        />
+      </div>
+
+      {/* Step labels + elapsed */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          {steps.map((step, i) => {
+            const isActive = i === currentIdx;
+            const isComplete = i < currentIdx;
+            return (
+              <span
+                key={step}
+                className={`text-[10px] uppercase tracking-wider ${
+                  isActive
+                    ? "text-[#c4f567] font-medium"
+                    : isComplete
+                    ? "text-[#c4f567]/50"
+                    : "text-white/20"
                 }`}
-              />
-            )}
-          </div>
-        );
-      })}
+              >
+                {step === "generating" ? "Generate" : step === "separating" ? "Stems" : "Load"}
+              </span>
+            );
+          })}
+        </div>
+        <span className="text-[10px] text-white/30 font-mono tabular-nums">
+          {formatElapsed(elapsed)}
+        </span>
+      </div>
     </div>
   );
 }
@@ -92,7 +133,6 @@ export function GenerationOverlay({ phase }: GenerationOverlayProps) {
       setVisible(true);
       setExiting(false);
     } else if (justCompleted && prevPhaseRef.current !== "idle" && prevPhaseRef.current !== "complete" && prevPhaseRef.current !== "error") {
-      // Phase just switched to "complete" -- start exit animation
       setExiting(true);
       const timer = setTimeout(() => {
         setVisible(false);
@@ -106,7 +146,6 @@ export function GenerationOverlay({ phase }: GenerationOverlayProps) {
     prevPhaseRef.current = phase;
   }, [phase, isActive, justCompleted]);
 
-  // Keep prevPhaseRef updated even if not in effect cleanup
   useEffect(() => {
     prevPhaseRef.current = phase;
   }, [phase]);
@@ -119,44 +158,39 @@ export function GenerationOverlay({ phase }: GenerationOverlayProps) {
 
   return (
     <div
-      className={`fixed inset-0 z-[200] flex items-center justify-center transition-all duration-500 ${
+      className={`absolute inset-0 z-[60] flex items-center justify-center transition-all duration-500 ${
         exiting ? "opacity-0 pointer-events-none" : "opacity-100"
       }`}
     >
       {/* Backdrop */}
       <div
-        className={`absolute inset-0 bg-black/80 backdrop-blur-md transition-opacity duration-500 ${
+        className={`absolute inset-0 bg-black/70 backdrop-blur-sm transition-opacity duration-500 ${
           exiting ? "opacity-0" : "opacity-100"
         }`}
       />
 
       {/* Card */}
       <div
-        className={`relative z-10 flex flex-col items-center justify-center px-10 py-10 rounded-2xl bg-[#111111]/90 border border-white/[0.07] shadow-2xl max-w-md w-full mx-4 transition-all duration-500 ${
+        className={`relative z-10 flex flex-col items-center justify-center px-8 py-8 rounded-2xl bg-[#111111]/90 border border-white/[0.07] shadow-2xl max-w-sm w-full mx-4 transition-all duration-500 ${
           exiting
             ? "opacity-0 scale-95 translate-y-4"
             : "opacity-100 scale-100 translate-y-0"
         }`}
       >
         {/* Waveform */}
-        <div className="flex items-center justify-center w-full">
-          <WaveformAnimation barCount={36} />
-        </div>
+        <WaveformAnimation barCount={28} />
 
         {/* Status label */}
-        <p className="mt-6 text-lg font-semibold text-white tracking-tight text-center w-full">
+        <p className="mt-4 text-base font-semibold text-white tracking-tight text-center">
           {msg.label}
         </p>
-        <p className="mt-1.5 text-sm text-white/50 text-center leading-relaxed w-full">
+        <p className="mt-1 text-xs text-white/50 text-center leading-relaxed">
           {msg.sub}
         </p>
 
-        {/* Step dots */}
-        <div className="flex items-center justify-center w-full">
-          <ProgressDots phase={phase} />
-        </div>
+        {/* Progress bar with elapsed time */}
+        <ProgressBar phase={phase} />
       </div>
-
     </div>
   );
 }

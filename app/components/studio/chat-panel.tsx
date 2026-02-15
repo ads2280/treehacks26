@@ -45,12 +45,13 @@ export function ChatPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [input, setInput] = useState("");
-  const { messages, sendMessage, addToolOutput, status } =
+  const { messages, sendMessage, addToolOutput, error, regenerate, status } =
     useChat({
       transport: new DefaultChatTransport({ api: "/api/chat" }),
       sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
       async onToolCall({ toolCall }) {
         const p = projectRef.current;
+        let output = "Done";
 
         switch (toolCall.toolName) {
           case "generate_track": {
@@ -65,7 +66,8 @@ export function ChatPanel({
               negative_tags: args.negative_tags,
               lyrics: args.lyrics,
             });
-            return `Started generating track: "${args.topic}" with tags: ${args.tags}`;
+            output = `Started generating track: "${args.topic}" with tags: ${args.tags}`;
+            break;
           }
           case "add_layer": {
             const args = toolCall.input as {
@@ -74,7 +76,8 @@ export function ChatPanel({
               topic?: string;
             };
             onAddLayer(args.stemType, args.tags || args.topic || "");
-            return `Adding ${args.stemType} layer`;
+            output = `Adding ${args.stemType} layer`;
+            break;
           }
           case "regenerate_layer": {
             const args = toolCall.input as {
@@ -82,17 +85,20 @@ export function ChatPanel({
               newDescription: string;
             };
             onRegenerateLayer(args.layerId, args.newDescription);
-            return `Regenerating layer with: "${args.newDescription}"`;
+            output = `Regenerating layer with: "${args.newDescription}"`;
+            break;
           }
           case "remove_layer": {
             const args = toolCall.input as { layerId: string };
             onRemoveLayer(args.layerId);
-            return `Removed layer ${args.layerId}`;
+            output = `Removed layer ${args.layerId}`;
+            break;
           }
           case "set_lyrics": {
             const args = toolCall.input as { lyrics: string };
             onSetLyrics(args.lyrics);
-            return "Lyrics updated";
+            output = "Lyrics updated";
+            break;
           }
           case "get_composition_state": {
             const state = {
@@ -110,14 +116,34 @@ export function ChatPanel({
               cachedStems: p.stemCache.map((s) => s.stemType),
               hasOriginalClip: !!p.originalClipId,
             };
-            return JSON.stringify(state);
+            output = JSON.stringify(state);
+            break;
           }
         }
+
+        // Explicitly provide tool result via addToolOutput (AI SDK v6 pattern)
+        addToolOutput({
+          toolCallId: toolCall.toolCallId,
+          output,
+        });
       },
     });
 
   const isStreaming = status === "streaming";
-  const isDisabled = isStreaming || isGenerating;
+  const isSubmitted = status === "submitted";
+  const isDisabled = isStreaming || isSubmitted || isGenerating;
+
+  // Show typing indicator only when waiting (no visible text yet)
+  const showTypingIndicator = (() => {
+    if (isSubmitted) return true;
+    if (!isStreaming) return false;
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || lastMsg.role !== "assistant") return true;
+    const text = (lastMsg.parts?.filter((p) => p.type === "text") || [])
+      .map((p) => p.text)
+      .join("");
+    return !text;
+  })();
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -128,13 +154,14 @@ export function ChatPanel({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isDisabled) return;
-    sendMessage({ role: "user", content: input });
+    sendMessage({ text: input });
     setInput("");
   };
 
-  const handleSuggestionClick = (stemType: StemType, tags: string) => {
+  const handleSuggestionClick = (stemType: StemType) => {
     if (isDisabled) return;
-    onAddLayer(stemType, tags);
+    const label = stemType.replace("_", " ");
+    sendMessage({ text: `add ${label}` });
   };
 
   return (
@@ -169,11 +196,15 @@ export function ChatPanel({
         )}
 
         {messages.map((msg) => {
+          const textParts = msg.parts?.filter((p) => p.type === "text") || [];
+          const textContent = textParts.map((p) => p.text).join("");
+
           if (msg.role === "user") {
+            if (!textContent) return null;
             return (
               <div key={msg.id} className="flex gap-2 justify-end">
                 <div className="max-w-[85%] bg-[#c4f567]/10 border border-[#c4f567]/20 rounded-lg px-3 py-2">
-                  <p className="text-sm text-white/90">{String(msg.content)}</p>
+                  <p className="text-sm text-white/90">{textContent}</p>
                 </div>
                 <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
                   <User className="w-3 h-3 text-white/60" />
@@ -183,10 +214,7 @@ export function ChatPanel({
           }
 
           if (msg.role === "assistant") {
-            const textParts = msg.parts?.filter((p) => p.type === "text") || [];
-            const textContent = textParts.map((p) => p.text).join("");
-            if (!textContent && !msg.content) return null;
-
+            if (!textContent) return null;
             return (
               <div key={msg.id} className="flex gap-2">
                 <div className="w-6 h-6 rounded-full bg-[#c4f567]/20 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -194,7 +222,7 @@ export function ChatPanel({
                 </div>
                 <div className="max-w-[85%] bg-white/5 border border-white/10 rounded-lg px-3 py-2">
                   <p className="text-sm text-white/80 whitespace-pre-wrap">
-                    {textContent || String(msg.content)}
+                    {textContent}
                   </p>
                 </div>
               </div>
@@ -204,13 +232,33 @@ export function ChatPanel({
           return null;
         })}
 
-        {isStreaming && (
+        {showTypingIndicator && (
           <div className="flex gap-2">
             <div className="w-6 h-6 rounded-full bg-[#c4f567]/20 flex items-center justify-center flex-shrink-0">
               <Bot className="w-3 h-3 text-[#c4f567]" />
             </div>
             <div className="bg-white/5 border border-white/10 rounded-lg px-3 py-2">
               <Loader2 className="w-4 h-4 animate-spin text-white/40" />
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="flex gap-2">
+            <div className="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Bot className="w-3 h-3 text-red-400" />
+            </div>
+            <div className="max-w-[85%]">
+              <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                <p className="text-sm text-red-300">Something went wrong.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => regenerate()}
+                className="mt-1 text-xs text-white/40 hover:text-white/70 transition-colors"
+              >
+                Retry
+              </button>
             </div>
           </div>
         )}
@@ -224,7 +272,7 @@ export function ChatPanel({
               <button
                 key={s.stemType}
                 type="button"
-                onClick={() => handleSuggestionClick(s.stemType, s.defaultTags)}
+                onClick={() => handleSuggestionClick(s.stemType)}
                 className="px-2.5 py-1 text-xs rounded-full bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 hover:text-white hover:border-white/20 transition-all"
               >
                 {s.label}
