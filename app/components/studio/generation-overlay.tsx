@@ -62,12 +62,12 @@ function ProgressBar({ phase }: { phase: GenerationPhase }) {
   const steps = ["generating", "separating", "loading"] as const;
   const currentIdx = steps.indexOf(phase as (typeof steps)[number]);
   const [elapsed, setElapsed] = useState(0);
-  const phaseStartRef = useRef(Date.now());
+  const phaseStartRef = useRef(0);
 
   // Reset timer when phase changes
   useEffect(() => {
     phaseStartRef.current = Date.now();
-    setElapsed(0);
+    setElapsed(0); // eslint-disable-line react-hooks/set-state-in-effect -- reset timer on phase change
     const interval = setInterval(() => {
       setElapsed(Math.floor((Date.now() - phaseStartRef.current) / 1000));
     }, 1000);
@@ -130,7 +130,7 @@ export function GenerationOverlay({ phase }: GenerationOverlayProps) {
 
   useEffect(() => {
     if (isActive) {
-      setVisible(true);
+      setVisible(true); // eslint-disable-line react-hooks/set-state-in-effect -- derived from phase prop
       setExiting(false);
     } else if (justCompleted && prevPhaseRef.current !== "idle" && prevPhaseRef.current !== "complete" && prevPhaseRef.current !== "error") {
       setExiting(true);

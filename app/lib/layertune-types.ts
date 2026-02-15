@@ -24,6 +24,13 @@ export type GenerationPhase =
   | "complete"
   | "error";
 
+export interface LayerVersion {
+  audioUrl: string;
+  sunoClipId: string | null;
+  prompt: string;
+  createdAt: string;
+}
+
 export interface Layer {
   id: string;
   projectId: string;
@@ -39,6 +46,7 @@ export interface Layer {
   sunoClipId: string | null;
   generationJobId: string | null;
   generationStatus?: LayerGenerationStatus;
+  versions: LayerVersion[];
   createdAt: string;
 }
 

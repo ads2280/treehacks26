@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { Project, Layer, ABState, StemType, CachedStem } from "@/lib/layertune-types";
+import type { Project, Layer, LayerVersion, ABState, StemType, CachedStem } from "@/lib/layertune-types";
 
 const STORAGE_KEY = "producething_project";
 
@@ -34,11 +34,13 @@ function loadProject(): Project {
       project.layers = project.layers
         .filter((l) => l.audioUrl || !l.generationStatus)
         .map((l) => {
-          if (l.generationStatus) {
-            const { generationStatus: _, ...clean } = l;
+          // Migrate: default versions array for layers from before version history
+          const withVersions = l.versions ? l : { ...l, versions: [] as LayerVersion[] };
+          if (withVersions.generationStatus) {
+            const { generationStatus: __status, ...clean } = withVersions; // eslint-disable-line @typescript-eslint/no-unused-vars
             return clean as typeof l;
           }
-          return l;
+          return withVersions;
         });
       return project;
     }
@@ -55,7 +57,7 @@ function saveProject(project: Project) {
     // tied to async flows that won't survive a page reload
     const toSave = {
       ...project,
-      layers: project.layers.map(({ generationStatus: _, ...rest }) => rest),
+      layers: project.layers.map(({ generationStatus: __status, ...rest }) => rest), // eslint-disable-line @typescript-eslint/no-unused-vars
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   } catch {
@@ -71,7 +73,7 @@ export function useProject() {
   useEffect(() => {
     if (!initialized.current) {
       initialized.current = true;
-      setProject(loadProject());
+      setProject(loadProject()); // eslint-disable-line react-hooks/set-state-in-effect -- hydrate from localStorage on mount
     }
   }, []);
 
@@ -197,11 +199,23 @@ export function useProject() {
     setProject((prev) => {
       const layer = prev.layers.find((l) => l.id === layerId);
       if (!layer || !layer.previousAudioUrl) return prev;
+      // Push discarded B (current audioUrl) to version history
+      const bVersion: LayerVersion = {
+        audioUrl: layer.audioUrl!,
+        sunoClipId: layer.sunoClipId,
+        prompt: layer.prompt,
+        createdAt: new Date().toISOString(),
+      };
       return {
         ...prev,
         layers: prev.layers.map((l) =>
           l.id === layerId
-            ? { ...l, audioUrl: l.previousAudioUrl, previousAudioUrl: null }
+            ? {
+                ...l,
+                audioUrl: l.previousAudioUrl,
+                previousAudioUrl: null,
+                versions: [bVersion, ...(l.versions || [])],
+              }
             : l
         ),
         abState: { ...prev.abState, [layerId]: "none" },
@@ -211,14 +225,28 @@ export function useProject() {
   }, []);
 
   const keepB = useCallback((layerId: string) => {
-    setProject((prev) => ({
-      ...prev,
-      layers: prev.layers.map((l) =>
-        l.id === layerId ? { ...l, previousAudioUrl: null } : l
-      ),
-      abState: { ...prev.abState, [layerId]: "none" },
-      updatedAt: new Date().toISOString(),
-    }));
+    setProject((prev) => {
+      const layer = prev.layers.find((l) => l.id === layerId);
+      if (!layer) return prev;
+      // Push discarded A (previousAudioUrl) to version history
+      const versions = [...(layer.versions || [])];
+      if (layer.previousAudioUrl) {
+        versions.unshift({
+          audioUrl: layer.previousAudioUrl,
+          sunoClipId: null,
+          prompt: layer.prompt,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      return {
+        ...prev,
+        layers: prev.layers.map((l) =>
+          l.id === layerId ? { ...l, previousAudioUrl: null, versions } : l
+        ),
+        abState: { ...prev.abState, [layerId]: "none" },
+        updatedAt: new Date().toISOString(),
+      };
+    });
   }, []);
 
   const setStemCache = useCallback(
@@ -226,6 +254,58 @@ export function useProject() {
       updateProject({ stemCache: stems });
     },
     [updateProject]
+  );
+
+  const pushVersion = useCallback(
+    (layerId: string, version: LayerVersion) => {
+      setProject((prev) => ({
+        ...prev,
+        layers: prev.layers.map((l) =>
+          l.id === layerId
+            ? { ...l, versions: [version, ...(l.versions || [])] }
+            : l
+        ),
+        updatedAt: new Date().toISOString(),
+      }));
+    },
+    []
+  );
+
+  const switchToVersion = useCallback(
+    (layerId: string, versionIndex: number) => {
+      setProject((prev) => {
+        const layer = prev.layers.find((l) => l.id === layerId);
+        if (!layer || !layer.versions || versionIndex < 0 || versionIndex >= layer.versions.length) {
+          return prev;
+        }
+        const target = layer.versions[versionIndex];
+        // Move current audioUrl into the version slot, put target as active
+        const currentVersion: LayerVersion = {
+          audioUrl: layer.audioUrl!,
+          sunoClipId: layer.sunoClipId,
+          prompt: layer.prompt,
+          createdAt: new Date().toISOString(),
+        };
+        const newVersions = [...layer.versions];
+        newVersions[versionIndex] = currentVersion;
+        return {
+          ...prev,
+          layers: prev.layers.map((l) =>
+            l.id === layerId
+              ? {
+                  ...l,
+                  audioUrl: target.audioUrl,
+                  sunoClipId: target.sunoClipId,
+                  prompt: target.prompt,
+                  versions: newVersions,
+                }
+              : l
+          ),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+    },
+    []
   );
 
   const consumeCachedStem = useCallback(
@@ -269,6 +349,8 @@ export function useProject() {
     startABComparison,
     keepA,
     keepB,
+    pushVersion,
+    switchToVersion,
     setStemCache,
     consumeCachedStem,
   };

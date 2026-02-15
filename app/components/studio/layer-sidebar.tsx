@@ -10,6 +10,8 @@ import {
   Loader2,
   AlertCircle,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import type { Layer, ABState, LayerGenerationStatus } from "@/lib/layertune-types";
@@ -38,11 +40,11 @@ const PHASE_RANGES: Record<string, [number, number]> = {
 
 function LayerProgressBar({ status, color }: { status: LayerGenerationStatus; color: string }) {
   const [elapsed, setElapsed] = useState(0);
-  const phaseStartRef = useRef(Date.now());
+  const phaseStartRef = useRef(0);
 
   useEffect(() => {
     phaseStartRef.current = Date.now();
-    setElapsed(0);
+    setElapsed(0); // eslint-disable-line react-hooks/set-state-in-effect -- reset timer on status change
     const interval = setInterval(() => {
       setElapsed(Math.floor((Date.now() - phaseStartRef.current) / 1000));
     }, 500);
@@ -86,6 +88,7 @@ interface LayerSidebarProps {
   onDelete: (id: string) => void;
   onSelectAB: (id: string, version: "a" | "b") => void;
   onKeepVersion: (id: string, version: "a" | "b") => void;
+  onSwitchVersion: (id: string, versionIndex: number) => void;
 }
 
 export function LayerSidebar({
@@ -98,6 +101,7 @@ export function LayerSidebar({
   onDelete,
   onSelectAB,
   onKeepVersion,
+  onSwitchVersion,
 }: LayerSidebarProps) {
   return (
     <div className="w-56 flex-shrink-0 border-r border-white/10 overflow-y-auto studio-scroll">
@@ -108,6 +112,8 @@ export function LayerSidebar({
         const isA = ab === "a_selected";
         const genStatus = layer.generationStatus;
         const isLayerGenerating = !!genStatus && genStatus !== "error";
+        const hasVersions = (layer.versions?.length ?? 0) > 0;
+        const totalVersions = (layer.versions?.length ?? 0) + 1;
 
         return (
           <div
@@ -125,7 +131,7 @@ export function LayerSidebar({
               e.dataTransfer.effectAllowed = "copy";
             }}
             className={`border-b border-white/5 transition-colors ${isLayerGenerating ? "opacity-70" : "cursor-grab active:cursor-grabbing"}`}
-            style={{ height: isComparing && !isLayerGenerating ? 110 : 80 }}
+            style={{ height: (isComparing && !isLayerGenerating) || (hasVersions && !isLayerGenerating && !isComparing) ? 110 : 80 }}
           >
             {/* Main controls */}
             <div className="flex items-center gap-2 px-3 py-2 h-[50px]">
@@ -261,6 +267,30 @@ export function LayerSidebar({
                   className="px-2 py-0.5 text-[10px] rounded bg-[#c4f567]/10 text-[#c4f567]/70 hover:bg-[#c4f567]/20 hover:text-[#c4f567] transition-colors"
                 >
                   Keep B
+                </button>
+              </div>
+            )}
+
+            {/* Version history — shown when versions exist and not in A/B mode */}
+            {hasVersions && !isComparing && !isLayerGenerating && (
+              <div className="flex items-center gap-1 px-3 pb-1.5">
+                <button
+                  onClick={() => onSwitchVersion(layer.id, 0)}
+                  className="p-0.5 rounded text-white/40 hover:text-white/70 transition-colors"
+                  title="Switch to previous version"
+                >
+                  <ChevronLeft className="w-3 h-3" />
+                </button>
+                <span className="text-[10px] text-white/40 tabular-nums">
+                  {totalVersions} versions
+                </span>
+                <button
+                  onClick={() => onSwitchVersion(layer.id, Math.min(1, (layer.versions?.length ?? 1) - 1))}
+                  disabled={(layer.versions?.length ?? 0) < 2}
+                  className="p-0.5 rounded text-white/40 hover:text-white/70 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Switch to next version"
+                >
+                  <ChevronRight className="w-3 h-3" />
                 </button>
               </div>
             )}

@@ -43,6 +43,8 @@ function StudioApp() {
     setOriginalClipId,
     setABState,
     startABComparison,
+    pushVersion,
+    switchToVersion,
     setStemCache,
   } = useProject();
 
@@ -235,6 +237,7 @@ function StudioApp() {
           sunoClipId: clipIds[0],
           generationJobId: null,
           projectId: project.id,
+          versions: [],
         });
         addToast("Track ready! Separating stems in background...", "success");
 
@@ -315,7 +318,7 @@ function StudioApp() {
         return null;
       }
     },
-    [addLayer, setVibePrompt, setOriginalClipId, setStemCache, addToast, project.id]
+    [addLayer, updateLayer, setVibePrompt, setOriginalClipId, setStemCache, addToast, project.id]
   );
 
   const handleAddLayer = useCallback(
@@ -343,6 +346,7 @@ function StudioApp() {
           sunoClipId: cached.sunoClipId,
           generationJobId: null,
           projectId: project.id,
+          versions: [],
         });
         addToast("Layer added from cache!", "success");
         const remainingTypes = remaining.map((s) => s.stemType).join(", ");
@@ -364,6 +368,7 @@ function StudioApp() {
         generationJobId: null,
         projectId: project.id,
         generationStatus: "generating",
+        versions: [],
       });
 
       try {
@@ -412,7 +417,7 @@ function StudioApp() {
         return `Failed to add ${stemTypeDisplayName(targetStemType)}: ${msg}`;
       }
     },
-    [project.originalClipId, project.id, project.stemCache, addLayer, updateLayer, setStemCache, addToast]
+    [project.originalClipId, project.id, project.stemCache, project.layers.length, addLayer, updateLayer, setStemCache, addToast]
   );
 
   const handleRegenerate = useCallback(
@@ -497,6 +502,74 @@ function StudioApp() {
     [updateLayer, startABComparison, setABState, addToast]
   );
 
+  const regenerateVocalsWithLyrics = useCallback(
+    async (vocalLayerId: string, lyricsText: string) => {
+      const p = projectRef.current;
+      const layer = p.layers.find((l) => l.id === vocalLayerId);
+      if (!layer || !p.originalClipId) {
+        addToast("Cannot regenerate: layer or original track missing", "error");
+        return;
+      }
+
+      if (layer.generationStatus) {
+        addToast("Vocals are already being regenerated", "info");
+        return;
+      }
+
+      // Push current audio to version history before overwriting
+      if (layer.audioUrl) {
+        pushVersion(vocalLayerId, {
+          audioUrl: layer.audioUrl,
+          sunoClipId: layer.sunoClipId,
+          prompt: layer.prompt,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      updateLayer(vocalLayerId, { generationStatus: "generating" });
+
+      try {
+        const data = await generate({
+          prompt: lyricsText,
+          tags: STEM_TYPE_TAGS[layer.stemType as keyof typeof STEM_TYPE_TAGS] || "vocals, singing, voice",
+          cover_clip_id: p.originalClipId,
+        });
+
+        const clipId = data.clips?.[0]?.id;
+        if (!clipId) throw new Error("No clip returned");
+
+        await pollUntilDone([clipId], {
+          acceptStreaming: true,
+          intervalMs: Math.min(POLL_INTERVALS.clip, 2500),
+          timeoutMs: 180000,
+        });
+
+        updateLayer(vocalLayerId, { generationStatus: "separating" });
+        const stemData = await stem(clipId);
+        const stemIds = stemData.clips?.map((c) => c.id) || [];
+        if (stemIds.length === 0) throw new Error("No stem clips returned");
+
+        const matchingStem = await pollForTargetStem(stemIds, layer.stemType as StemType, {
+          intervalMs: POLL_INTERVALS.stem,
+          timeoutMs: 300000,
+        });
+
+        updateLayer(vocalLayerId, {
+          audioUrl: proxyAudioUrl(matchingStem.audio_url),
+          sunoClipId: matchingStem.id,
+          generationStatus: undefined,
+        });
+
+        addToast("Vocals regenerated with new lyrics!", "success");
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Vocal regeneration failed";
+        addToast(msg, "error");
+        updateLayer(vocalLayerId, { generationStatus: undefined });
+      }
+    },
+    [updateLayer, pushVersion, addToast]
+  );
+
   const handleModalRegenerate = useCallback(
     (prompt: string) => {
       if (!regenLayerId) return;
@@ -518,16 +591,26 @@ function StudioApp() {
   }, []);
 
   const handleUseLyrics = useCallback(() => {
-    const vocalLayer = projectRef.current.layers.find(
-      (l) => l.stemType === "vocals" || l.stemType === "backing_vocals"
-    );
+    const currentLyrics = lyricsRef.current.trim();
+    if (!currentLyrics) {
+      addToast("Please write some lyrics first", "info");
+      return;
+    }
+
+    const pLayers = projectRef.current.layers;
+    const vocalLayer =
+      pLayers.find((l) => l.stemType === "vocals") ||
+      pLayers.find((l) => l.stemType === "backing_vocals");
+
+    // Close panel first — gives visual space for sidebar loading animation
+    setLyricsOpen(false);
+
     if (vocalLayer) {
-      addToast("Lyrics updated - regenerating vocals", "info");
-      void handleRegenerate(vocalLayer.id, vocalLayer.prompt || "vocals");
+      void regenerateVocalsWithLyrics(vocalLayer.id, currentLyrics);
     } else {
       addToast("Lyrics saved for next generation", "success");
     }
-  }, [addToast, handleRegenerate]);
+  }, [addToast, regenerateVocalsWithLyrics]);
 
   const handleChatGenerate = useCallback(
     async (
@@ -576,17 +659,28 @@ function StudioApp() {
 
   // Landing → Chat flow: store prompt, let ChatPanel send it to the AI agent
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  // Stays true from landing submit until generation actually starts — prevents landing flash-back
+  const [chatActive, setChatActive] = useState(false);
 
   const handleLandingSubmit = useCallback((prompt: string) => {
     setPendingMessage(prompt);
+    setChatActive(true);
   }, []);
 
-  // Show landing when no project content, not generating, and no pending message
+  // Clear chatActive once generation starts or layers appear
+  useEffect(() => {
+    if (chatActive && (generationPhase !== "idle" || layers.length > 0 || project.originalClipId)) {
+      setChatActive(false);
+    }
+  }, [chatActive, generationPhase, layers.length, project.originalClipId]);
+
+  // Show landing when no project content, not generating, and not actively chatting
   const showLanding =
     layers.length === 0 &&
     !project.originalClipId &&
     generationPhase === "idle" &&
-    !pendingMessage;
+    !pendingMessage &&
+    !chatActive;
 
   return (
     <div className="h-screen flex flex-col bg-[#0d0d0d] text-white overflow-hidden">
@@ -596,6 +690,7 @@ function StudioApp() {
         lyricsOpen={lyricsOpen}
         onToggleLyrics={() => setLyricsOpen((o) => !o)}
         onExportMix={exportAudio}
+        showLanding={showLanding}
       />
 
       {/* Landing overlay — covers the studio when no project */}
@@ -603,6 +698,12 @@ function StudioApp() {
         <StudioLanding
           onSubmit={handleLandingSubmit}
           isSubmitting={isInitialGenerating}
+          modelProvider={modelProvider}
+          onModelProviderChange={setModelProvider}
+          agentMode={agentMode}
+          onAgentModeChange={setAgentMode}
+          lyrics={lyrics}
+          onLyricsChange={setLyrics}
         />
       )}
 
@@ -643,6 +744,7 @@ function StudioApp() {
                 onDelete={(id) => setDeleteLayerId(id)}
                 onSelectAB={handleSelectABVersion}
                 onKeepVersion={handleKeepVersion}
+                onSwitchVersion={switchToVersion}
               />
             )}
             <WaveformDisplay
@@ -683,6 +785,7 @@ function StudioApp() {
             onLyricsChange={setLyrics}
             onClose={() => setLyricsOpen(false)}
             onUseLyrics={handleUseLyrics}
+            hasVocalLayer={layers.some((l) => l.stemType === "vocals" || l.stemType === "backing_vocals")}
           />
         )}
       </div>

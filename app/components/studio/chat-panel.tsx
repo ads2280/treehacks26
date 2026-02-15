@@ -7,11 +7,11 @@ import {
   lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
 import type { UIMessage } from "ai";
-import { Send, User, Loader2, ChevronRight, Music, Layers, RefreshCw, Trash2 } from "lucide-react";
+import { Send, User, Loader2, ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { DjHead } from "@/components/icons/dj-head";
 import { Button } from "@/components/ui/button";
-import { SMART_SUGGESTIONS, STEM_COLORS, ALL_STEM_TYPES, STEM_LABELS, STEM_TYPE_TAGS } from "@/lib/layertune-types";
+import { SMART_SUGGESTIONS, STEM_COLORS, ALL_STEM_TYPES, STEM_LABELS } from "@/lib/layertune-types";
 import type { StemType, Project, ModelProvider } from "@/lib/layertune-types";
 
 const LAYER_CONTEXT_RE =
@@ -76,10 +76,13 @@ export function ChatPanel({
   });
 
   const modelProviderRef = useRef(modelProvider);
-  modelProviderRef.current = modelProvider;
   const agentModeRef = useRef(agentMode);
-  agentModeRef.current = agentMode;
+  useEffect(() => {
+    modelProviderRef.current = modelProvider;
+    agentModeRef.current = agentMode;
+  });
 
+  /* eslint-disable react-hooks/refs -- body is a lazy callback, not render-time access */
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -91,6 +94,7 @@ export function ChatPanel({
       }),
     []
   );
+  /* eslint-enable react-hooks/refs */
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
