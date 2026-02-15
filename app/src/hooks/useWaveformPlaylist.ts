@@ -94,7 +94,8 @@ export function useWaveformPlaylist({
   // Initialize the playlist instance once on mount
   // ---------------------------------------------------------------
   useEffect(() => {
-    if (!containerRef.current || isInitializedRef.current) return;
+    const container = containerRef.current;
+    if (!container || isInitializedRef.current) return;
 
     let cancelled = false;
 
@@ -112,7 +113,7 @@ export function useWaveformPlaylist({
       const EventEmitter = (await import('event-emitter')).default;
       const WaveformPlaylist = (await import('waveform-playlist')).default;
 
-      if (cancelled || !containerRef.current) return;
+      if (cancelled || !container) return;
 
       const ee = EventEmitter();
       eeRef.current = ee;
@@ -121,7 +122,7 @@ export function useWaveformPlaylist({
 
       const playlist = WaveformPlaylist(
         {
-          container: containerRef.current,
+          container,
           samplesPerPixel: closestSpp,
           mono: true,
           waveHeight: 55,
@@ -184,8 +185,8 @@ export function useWaveformPlaylist({
       }
 
       // Clean up the DOM that waveform-playlist rendered
-      if (containerRef.current) {
-        containerRef.current.innerHTML = '';
+      if (container) {
+        container.innerHTML = '';
       }
       playlistRef.current = null;
       eeRef.current = null;

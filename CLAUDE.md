@@ -301,3 +301,9 @@ Maintain a running list of bugs found and how they were debugged. This builds in
 - **Root cause**: `LayerTimeline` conditionally rendered the playlist container div — only when `layers.length > 0`. On initial mount, layers is empty, so the `<div ref={playlistContainerRef}>` doesn't exist. The init `useEffect` with `[]` deps runs once, sees null ref, returns early, and never retries.
 - **Fix**: Restructured `LayerTimeline` to always render the playlist container div in the DOM. Empty state message is now an absolute-positioned overlay on top instead of a replacement. This ensures the ref is always available when the mount effect fires.
 - **Lesson**: Never conditionally render a container element that's used as a ref for a mount-only (`[]` deps) useEffect. Either always render it, or use a callback ref that triggers state changes.
+
+### Bug #6: consumeCachedStem always returns null — React batched setState updater
+- **Symptom**: Clicking "+ Bass" (which was in stemCache) triggered full Suno generation instead of instant cache hit
+- **Debug chain**: Checked localStorage → bass was in stemCache → consumeCachedStem called → returns null → falls through to API → inspected code: uses `let found = null` set inside `setProject((prev) => { found = match; ... })` → React 18+ batches state updates, the updater function runs during rendering, NOT synchronously at the `setProject` call site → `return found` executes before the updater runs → always null
+- **Fix**: Replaced `consumeCachedStem()` with direct `project.stemCache.find()` read + `setStemCache(filtered)` in `handleAddLayer`. Reading current state is synchronous and reliable.
+- **Lesson**: Never rely on side-effects inside React `setState` updater functions to return values. The updater is deferred. Read state directly from the current render's state variable instead.

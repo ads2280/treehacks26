@@ -41,8 +41,8 @@ export function LayerTimeline({
         <div className="absolute inset-0 flex items-center justify-center z-10">
           <div className="text-center">
             <Music size={48} className="text-zinc-700 mx-auto mb-4" />
-            <p className="text-zinc-500 text-lg">Describe your music to get started</p>
-            <p className="text-zinc-600 text-sm mt-1">Type a vibe above and click Generate</p>
+            <p className="text-zinc-500 text-lg">Describe your vibe to create a beat</p>
+            <p className="text-zinc-600 text-sm mt-1">We&apos;ll start with drums, then you add layers</p>
           </div>
         </div>
       )}

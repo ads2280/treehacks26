@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Project, Layer, StemType, ABState } from '@/lib/types';
+import { Project, Layer, StemType, ABState, CachedStem } from '@/lib/types';
 
 const STORAGE_KEY = 'layertune_project';
 
@@ -17,6 +17,7 @@ function createEmptyProject(): Project {
     duration: 0,
     layers: [],
     originalClipId: null,
+    stemCache: [],
     abState: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -47,10 +48,12 @@ export function useProject() {
   const [project, setProject] = useState<Project>(createEmptyProject);
   const initialized = useRef(false);
 
-  // Load from localStorage on mount (client only)
+  // Load from localStorage on mount (client only).
+  // This must be an effect because localStorage is unavailable during SSR.
   useEffect(() => {
     if (!initialized.current) {
       initialized.current = true;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setProject(loadProject());
     }
   }, []);
@@ -202,6 +205,25 @@ export function useProject() {
     []
   );
 
+  const setStemCache = useCallback((stems: CachedStem[]) => {
+    updateProject({ stemCache: stems });
+  }, [updateProject]);
+
+  const consumeCachedStem = useCallback((stemType: StemType): CachedStem | null => {
+    let found: CachedStem | null = null;
+    setProject((prev) => {
+      const match = prev.stemCache.find((s) => s.stemType === stemType);
+      if (!match) return prev;
+      found = match;
+      return {
+        ...prev,
+        stemCache: prev.stemCache.filter((s) => s !== match),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    return found;
+  }, []);
+
   const resetProject = useCallback(() => {
     const fresh = createEmptyProject();
     setProject(fresh);
@@ -221,6 +243,8 @@ export function useProject() {
     startABComparison,
     keepA,
     keepB,
+    setStemCache,
+    consumeCachedStem,
     resetProject,
     updateProject,
   };

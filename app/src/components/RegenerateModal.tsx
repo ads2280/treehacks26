@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { RefreshCw, X } from 'lucide-react';
 import { Layer } from '@/lib/types';
 import { STEM_DISPLAY_NAMES, StemType } from '@/lib/constants';
@@ -14,14 +14,6 @@ interface RegenerateModalProps {
 
 export function RegenerateModal({ isOpen, layer, onRegenerate, onClose }: RegenerateModalProps) {
   const [prompt, setPrompt] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (isOpen) {
-      setPrompt('');
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
-  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -63,7 +55,7 @@ export function RegenerateModal({ isOpen, layer, onRegenerate, onClose }: Regene
         </p>
         <form onSubmit={handleSubmit}>
           <input
-            ref={inputRef}
+            autoFocus
             type="text"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}

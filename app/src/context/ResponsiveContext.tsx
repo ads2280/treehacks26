@@ -32,8 +32,6 @@ export function ResponsiveProvider({ children }: { children: ReactNode }): React
       setIsMobile(event.matches);
     };
 
-    setIsMobile(mediaQuery.matches);
-
     mediaQuery.addEventListener('change', handleChange);
     return () => {
       mediaQuery.removeEventListener('change', handleChange);

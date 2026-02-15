@@ -12,9 +12,9 @@ import { ExportPanel } from '@/components/ExportPanel';
 import { useProject } from '@/hooks/useProject';
 import { useWaveformPlaylist } from '@/hooks/useWaveformPlaylist';
 import { useToast } from '@/context/ToastContext';
-import { Layer } from '@/lib/types';
+import { Layer, CachedStem, StemType } from '@/lib/types';
 import { generate, stem, pollUntilDone, proxyAudioUrl, stemTitleToType } from '@/lib/api';
-import { STEM_NAME_TO_TYPE, STEM_TYPE_TAGS, POLL_INTERVALS } from '@/lib/constants';
+import { STEM_TYPE_TAGS, STEM_DISPLAY_NAMES, POLL_INTERVALS } from '@/lib/constants';
 
 export default function Home() {
   const {
@@ -27,6 +27,7 @@ export default function Home() {
     setVibePrompt,
     updateLayer,
     setOriginalClipId,
+    setStemCache,
     startABComparison,
     setABState,
   } = useProject();
@@ -50,7 +51,6 @@ export default function Home() {
     pause: pauseAudio,
     stop: stopAudio,
     rewind: rewindAudio,
-    isLoaded,
     exportAudio,
   } = useWaveformPlaylist({
     containerRef: playlistContainerRef,
@@ -75,10 +75,11 @@ export default function Home() {
   const [generationPhase, setGenerationPhase] = useState<GenerationPhase>('idle');
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // Modal state
-  const [regenModal, setRegenModal] = useState<{ isOpen: boolean; layer: Layer | null }>({
+  // Modal state — regenKey forces remount to reset internal state
+  const [regenModal, setRegenModal] = useState<{ isOpen: boolean; layer: Layer | null; key: number }>({
     isOpen: false,
     layer: null,
+    key: 0,
   });
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; layerId: string | null }>({
     isOpen: false,
@@ -101,25 +102,17 @@ export default function Home() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [rewindAudio]);
 
-  // A/B version selection - swap audio URLs to toggle which is audible.
-  // After regeneration the layer state is:
-  //   audioUrl = NEW audio (version B)
-  //   previousAudioUrl = OLD audio (version A)
-  // Selecting A swaps so audioUrl=OLD, previousAudioUrl=NEW.
-  // Selecting B swaps back.
-  // The swap is only performed when the requested version differs from
-  // the currently selected version to avoid double-swap bugs.
+  // Swap audioUrl <-> previousAudioUrl to toggle which version is audible.
+  // Only swaps when the requested version differs from current to prevent double-swap.
   const handleSelectABVersion = useCallback(
     (layerId: string, version: 'a' | 'b') => {
       const currentVersion = abSelectedVersions[layerId] || 'b';
-      // No-op if already on the requested version
       if (currentVersion === version) return;
 
       setAbSelectedVersions((prev) => ({ ...prev, [layerId]: version }));
       const layer = project.layers.find((l) => l.id === layerId);
       if (!layer || !layer.previousAudioUrl) return;
 
-      // Swap audioUrl <-> previousAudioUrl
       updateLayer(layerId, {
         audioUrl: layer.previousAudioUrl,
         previousAudioUrl: layer.audioUrl,
@@ -128,20 +121,13 @@ export default function Home() {
     [project.layers, updateLayer, abSelectedVersions]
   );
 
-  // Keep A (original): ensure the original audio ends up as audioUrl,
-  // clear previousAudioUrl, and exit comparison mode.
-  // After regeneration (default state, version B selected):
-  //   audioUrl = NEW, previousAudioUrl = OLD
-  //   -> keepA needs to set audioUrl = OLD
-  // If user toggled to A:
-  //   audioUrl = OLD, previousAudioUrl = NEW
-  //   -> keepA needs to keep audioUrl = OLD (already correct)
-  const handleKeepA = useCallback(
-    (layerId: string) => {
+  // Resolve an A/B comparison by keeping the specified version.
+  // If the user toggled to a different version than what's requested,
+  // we need to swap audioUrl <-> previousAudioUrl before clearing.
+  const resolveABComparison = useCallback(
+    (layerId: string, keepVersion: 'a' | 'b') => {
       const currentVersion = abSelectedVersions[layerId] || 'b';
-      if (currentVersion === 'b') {
-        // Currently playing B (new). Original is in previousAudioUrl.
-        // Swap to original and clear.
+      if (currentVersion !== keepVersion) {
         const layer = project.layers.find((l) => l.id === layerId);
         if (layer?.previousAudioUrl) {
           updateLayer(layerId, {
@@ -150,8 +136,6 @@ export default function Home() {
           });
         }
       } else {
-        // Currently playing A (original). It's already in audioUrl.
-        // Just clear previousAudioUrl.
         updateLayer(layerId, { previousAudioUrl: null });
       }
       setAbSelectedVersions((prev) => {
@@ -160,46 +144,24 @@ export default function Home() {
         return next;
       });
       setABState(layerId, 'none');
-      showToast('Reverted to original version', 'info');
     },
-    [abSelectedVersions, project.layers, updateLayer, setABState, showToast]
+    [abSelectedVersions, project.layers, updateLayer, setABState]
   );
 
-  // Keep B (new): ensure the new audio ends up as audioUrl,
-  // clear previousAudioUrl, and exit comparison mode.
-  // After regeneration (default state, version B selected):
-  //   audioUrl = NEW, previousAudioUrl = OLD
-  //   -> keepB just clears previousAudioUrl
-  // If user toggled to A:
-  //   audioUrl = OLD, previousAudioUrl = NEW
-  //   -> keepB needs to swap back to NEW
+  const handleKeepA = useCallback(
+    (layerId: string) => {
+      resolveABComparison(layerId, 'a');
+      showToast('Reverted to original version', 'info');
+    },
+    [resolveABComparison, showToast]
+  );
+
   const handleKeepB = useCallback(
     (layerId: string) => {
-      const currentVersion = abSelectedVersions[layerId] || 'b';
-      if (currentVersion === 'a') {
-        // Currently playing A (original). New is in previousAudioUrl.
-        // Swap to new and clear.
-        const layer = project.layers.find((l) => l.id === layerId);
-        if (layer?.previousAudioUrl) {
-          updateLayer(layerId, {
-            audioUrl: layer.previousAudioUrl,
-            previousAudioUrl: null,
-          });
-        }
-      } else {
-        // Currently playing B (new). It's already in audioUrl.
-        // Just clear previousAudioUrl.
-        updateLayer(layerId, { previousAudioUrl: null });
-      }
-      setAbSelectedVersions((prev) => {
-        const next = { ...prev };
-        delete next[layerId];
-        return next;
-      });
-      setABState(layerId, 'none');
+      resolveABComparison(layerId, 'b');
       showToast('New version kept!', 'success');
     },
-    [abSelectedVersions, project.layers, updateLayer, setABState, showToast]
+    [resolveABComparison, showToast]
   );
 
   const handleGenerate = useCallback(
@@ -209,10 +171,11 @@ export default function Home() {
       setVibePrompt(prompt);
 
       try {
-        // Step 1: Generate track via Suno API
+        // Emphasize drums in tags since we show that layer first
+        const drumsTags = `drums, beat, rhythm, ${tags || prompt}`;
         const data = await generate({
           topic: prompt,
-          tags: tags || prompt,
+          tags: drumsTags,
           make_instrumental: instrumental || false,
         });
 
@@ -221,36 +184,37 @@ export default function Home() {
 
         setOriginalClipId(clipIds[0]);
 
-        // Step 2: Poll for clip completion (require 'complete' because
-        // Suno API requires clip to be fully complete before stem separation)
+        // Require 'complete' — Suno needs full completion before stem separation
         await pollUntilDone(clipIds, {
           acceptStreaming: false,
           intervalMs: POLL_INTERVALS.clip,
-          timeoutMs: 180000, // 3 min timeout for generation
+          timeoutMs: 180000,
         });
 
-        // Step 3: Request stem separation
         setGenerationPhase('separating');
         const stemData = await stem(clipIds[0]);
         const stemClipIds = stemData.clips?.map((c) => c.id) || [];
         if (stemClipIds.length === 0) throw new Error('No stem clips returned');
 
-        // Step 4: Poll for stem completion (require 'complete' -- stems need
-        // audio_url which is only populated at complete, not streaming)
+        // Stems need audio_url which is only populated at 'complete'
         const stemClips = await pollUntilDone(stemClipIds, {
           acceptStreaming: false,
           intervalMs: POLL_INTERVALS.stem,
-          timeoutMs: 300000, // 5 min timeout for stem separation
+          timeoutMs: 300000,
         });
 
-        // Step 5: Create layers from completed stems
         setGenerationPhase('loading');
+        const cachedStems: CachedStem[] = [];
+        let drumsAdded = false;
+
         for (const stemClip of stemClips) {
-          if (stemClip.audio_url) {
-            const stemType = stemTitleToType(stemClip.title);
+          if (!stemClip.audio_url) continue;
+          const stemType = (stemTitleToType(stemClip.title) || 'fx') as StemType;
+
+          if (stemType === 'drums' && !drumsAdded) {
             addLayer({
               name: stemClip.title,
-              stemType: (stemType || 'fx') as Layer['stemType'],
+              stemType,
               prompt,
               audioUrl: proxyAudioUrl(stemClip.audio_url),
               previousAudioUrl: null,
@@ -261,11 +225,22 @@ export default function Home() {
               sunoClipId: stemClip.id,
               generationJobId: null,
             });
+            drumsAdded = true;
+          } else {
+            cachedStems.push({
+              stemType,
+              audioUrl: proxyAudioUrl(stemClip.audio_url),
+              sunoClipId: stemClip.id,
+              fromClipId: clipIds[0],
+              createdAt: new Date().toISOString(),
+            });
           }
         }
 
+        setStemCache(cachedStems);
+
         setGenerationPhase('complete');
-        showToast('Layers ready!', 'success');
+        showToast('Beat ready! Add more layers to build your track.', 'success');
         setTimeout(() => setGenerationPhase('idle'), 2000);
       } catch (error) {
         setGenerationPhase('error');
@@ -275,11 +250,9 @@ export default function Home() {
         setIsGenerating(false);
       }
     },
-    [addLayer, setVibePrompt, setOriginalClipId, showToast]
+    [addLayer, setVibePrompt, setOriginalClipId, setStemCache, showToast]
   );
 
-  // Add a new layer by generating a cover variation of the original clip,
-  // then extracting only the requested stem type.
   const handleAddLayer = useCallback(
     async (targetStemType: string, tags: string) => {
       if (!project.originalClipId) {
@@ -287,11 +260,32 @@ export default function Home() {
         return;
       }
 
+      // Check cache synchronously by reading project.stemCache directly
+      // (can't use setProject updater for this — React batches the execution)
+      const cached = project.stemCache.find((s) => s.stemType === targetStemType);
+      if (cached) {
+        setStemCache(project.stemCache.filter((s) => s !== cached));
+        addLayer({
+          name: STEM_DISPLAY_NAMES[targetStemType as StemType] || targetStemType,
+          stemType: targetStemType as StemType,
+          prompt: tags,
+          audioUrl: cached.audioUrl,
+          previousAudioUrl: null,
+          volume: 0.8,
+          isMuted: false,
+          isSoloed: false,
+          position: 0,
+          sunoClipId: cached.sunoClipId,
+          generationJobId: null,
+        });
+        showToast('Layer added from cache!', 'success');
+        return;
+      }
+
       setIsGenerating(true);
       setGenerationPhase('generating');
 
       try {
-        // Use cover_clip_id to maintain musical coherence with the original track
         const data = await generate({
           topic: tags,
           tags,
@@ -301,37 +295,30 @@ export default function Home() {
         const clipId = data.clips?.[0]?.id;
         if (!clipId) throw new Error('No clip returned');
 
-        // Poll for clip completion (require complete for stem separation)
         await pollUntilDone([clipId], {
           acceptStreaming: false,
           intervalMs: POLL_INTERVALS.clip,
           timeoutMs: 180000,
         });
 
-        // Stem separate
         setGenerationPhase('separating');
         const stemData = await stem(clipId);
         const stemIds = stemData.clips?.map((c) => c.id) || [];
         if (stemIds.length === 0) throw new Error('No stem clips returned');
 
-        // Poll stems until fully complete (need audio_url)
         const stemClips = await pollUntilDone(stemIds, {
           acceptStreaming: false,
           intervalMs: POLL_INTERVALS.stem,
           timeoutMs: 300000,
         });
 
-        // Find and add only the matching stem type
         setGenerationPhase('loading');
-        const matchingStem = stemClips.find((s) => {
-          const type = stemTitleToType(s.title);
-          return type === targetStemType;
-        });
+        const matchingStem = stemClips.find((s) => stemTitleToType(s.title) === targetStemType);
 
         if (matchingStem?.audio_url) {
           addLayer({
             name: matchingStem.title,
-            stemType: (targetStemType as Layer['stemType']),
+            stemType: targetStemType as StemType,
             prompt: tags,
             audioUrl: proxyAudioUrl(matchingStem.audio_url),
             previousAudioUrl: null,
@@ -357,7 +344,7 @@ export default function Home() {
         setIsGenerating(false);
       }
     },
-    [project.originalClipId, addLayer, showToast]
+    [project.originalClipId, project.stemCache, addLayer, setStemCache, showToast]
   );
 
   const handleRegenerate = useCallback(
@@ -365,7 +352,6 @@ export default function Home() {
       const layer = project.layers.find((l) => l.id === layerId);
       if (!layer || !project.originalClipId) return;
 
-      // Store current audio as previous for A/B comparison
       updateLayer(layerId, { previousAudioUrl: layer.audioUrl });
       startABComparison(layerId);
       setAbSelectedVersions((prev) => ({ ...prev, [layerId]: 'b' }));
@@ -374,11 +360,9 @@ export default function Home() {
       setGenerationPhase('generating');
 
       try {
-        // Use stem-type-specific tags from constants (single source of truth)
         const stemTypeTag = STEM_TYPE_TAGS[layer.stemType as keyof typeof STEM_TYPE_TAGS] || '';
         const tags = `${stemTypeTag}, ${prompt}`;
 
-        // Generate a cover variation using cover_clip_id for coherence
         const data = await generate({
           topic: prompt,
           tags,
@@ -388,31 +372,24 @@ export default function Home() {
         const clipId = data.clips?.[0]?.id;
         if (!clipId) throw new Error('No clip returned');
 
-        // Poll clip until fully complete (required before stem separation)
         await pollUntilDone([clipId], {
           acceptStreaming: false,
           intervalMs: POLL_INTERVALS.clip,
           timeoutMs: 180000,
         });
 
-        // Stem separate
         setGenerationPhase('separating');
         const stemData = await stem(clipId);
         const stemIds = stemData.clips?.map((c) => c.id) || [];
         if (stemIds.length === 0) throw new Error('No stem clips returned');
 
-        // Poll stems until fully complete (need audio_url populated)
         const stemClips = await pollUntilDone(stemIds, {
           acceptStreaming: false,
           intervalMs: POLL_INTERVALS.stem,
           timeoutMs: 300000,
         });
 
-        // Find the matching stem by type using the shared mapping
-        const matchingStem = stemClips.find((s) => {
-          const type = stemTitleToType(s.title);
-          return type === layer.stemType;
-        });
+        const matchingStem = stemClips.find((s) => stemTitleToType(s.title) === layer.stemType);
 
         if (matchingStem?.audio_url) {
           updateLayer(layerId, {
@@ -432,8 +409,7 @@ export default function Home() {
         showToast(error instanceof Error ? error.message : 'Regeneration failed', 'error');
         setTimeout(() => setGenerationPhase('idle'), 3000);
 
-        // Clean up A/B state on failure: revert to original audio
-        // and exit comparison mode so the UI doesn't show a broken A/B panel.
+        // Revert A/B state on failure
         updateLayer(layerId, {
           audioUrl: layer.audioUrl,
           previousAudioUrl: null,
@@ -475,6 +451,7 @@ export default function Home() {
         onAddLayer={handleAddLayer}
         isGenerating={isGenerating}
         hasLayers={project.layers.length > 0}
+        existingStemTypes={project.layers.map((l) => l.stemType)}
       />
 
       {/* Timeline */}
@@ -486,7 +463,7 @@ export default function Home() {
         onVolumeChange={setLayerVolume}
         onRegenerate={(layerId) => {
           const layer = project.layers.find((l) => l.id === layerId);
-          if (layer) setRegenModal({ isOpen: true, layer });
+          if (layer) setRegenModal((prev) => ({ isOpen: true, layer, key: prev.key + 1 }));
         }}
         onDelete={(layerId) => setDeleteConfirm({ isOpen: true, layerId })}
         abState={project.abState}
@@ -514,10 +491,11 @@ export default function Home() {
 
       {/* Modals */}
       <RegenerateModal
+        key={regenModal.key}
         isOpen={regenModal.isOpen}
         layer={regenModal.layer}
         onRegenerate={handleRegenerate}
-        onClose={() => setRegenModal({ isOpen: false, layer: null })}
+        onClose={() => setRegenModal((prev) => ({ isOpen: false, layer: null, key: prev.key }))}
       />
 
       <ConfirmDialog

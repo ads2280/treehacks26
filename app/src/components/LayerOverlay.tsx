@@ -85,7 +85,6 @@ export function LayerOverlay({
       {/* A/B Comparison row (shown when comparing) */}
       {hasABComparison && (
         <ABComparison
-          layerId={layer.id}
           isComparing={true}
           selectedVersion={abSelectedVersion}
           onSelectA={() => onSelectABVersion('a')}

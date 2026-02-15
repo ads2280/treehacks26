@@ -29,6 +29,14 @@ export interface Layer {
   createdAt: string;
 }
 
+export interface CachedStem {
+  stemType: StemType;
+  audioUrl: string;
+  sunoClipId: string;
+  fromClipId: string;
+  createdAt: string;
+}
+
 export type ABState = 'none' | 'comparing' | 'a_selected' | 'b_selected';
 
 export interface Project {
@@ -38,6 +46,7 @@ export interface Project {
   duration: number;
   layers: Layer[];
   originalClipId: string | null;
+  stemCache: CachedStem[];
   abState: Record<string, ABState>;
   createdAt: string;
   updatedAt: string;

@@ -4,7 +4,6 @@ import React from 'react';
 import { ArrowLeftRight } from 'lucide-react';
 
 interface ABComparisonProps {
-  layerId: string;
   isComparing: boolean;
   selectedVersion: 'a' | 'b' | null;
   onSelectA: () => void;
@@ -14,7 +13,6 @@ interface ABComparisonProps {
 }
 
 export function ABComparison({
-  layerId,
   isComparing,
   selectedVersion,
   onSelectA,
