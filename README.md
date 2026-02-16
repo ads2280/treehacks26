@@ -1,15 +1,3 @@
-<!-- Badges -->
-<p align="center">
-  <img src="https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js" />
-  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react" />
-  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript" />
-  <img src="https://img.shields.io/badge/Tailwind-4-06B6D4?style=flat-square&logo=tailwindcss" />
-  <img src="https://img.shields.io/badge/Modal-T4_GPU-green?style=flat-square" />
-  <img src="https://img.shields.io/badge/Suno-API-ff6b35?style=flat-square" />
-  <img src="https://img.shields.io/badge/Vercel_AI_SDK-v6-000?style=flat-square&logo=vercel" />
-  <img src="https://img.shields.io/badge/Claude-Opus_4.6-d4a574?style=flat-square&logo=anthropic" />
-</p>
-
 <h1 align="center">ProduceThing</h1>
 <p align="center"><strong>Most AI music tools generate songs. ProduceThing helps you write better ones. It coaches lyrics in real time, then an autonomous agent arranges and refines them into a finished track.</strong></p>
 <p align="center"><em>TreeHacks 2026</em></p>
